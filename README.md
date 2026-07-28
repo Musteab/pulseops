@@ -6,7 +6,7 @@ Revenue for one outlet drops 40 percent overnight. Did sales actually fall, or d
 
 It is a synthetic restaurant order platform with a three-layer BigQuery warehouse, contract-enforced ingestion, deliberate fault injection, and (in progress) an agentic copilot that investigates anomalies with read-only tools.
 
-[![ci](https://github.com/USERNAME/pulseops/actions/workflows/ci.yml/badge.svg)](https://github.com/USERNAME/pulseops/actions/workflows/ci.yml)
+[![ci](https://github.com/Musteab/pulseops/actions/workflows/ci.yml/badge.svg)](https://github.com/Musteab/pulseops/actions/workflows/ci.yml)
 
 ---
 
@@ -42,7 +42,7 @@ That last split is the honest part. The ingest-time contract cannot catch a dupl
 Needs Python 3.11 or newer. No cloud account, no credentials, no Docker.
 
 ```bash
-git clone https://github.com/USERNAME/pulseops.git
+git clone https://github.com/Musteab/pulseops.git
 cd pulseops
 make setup
 make demo
