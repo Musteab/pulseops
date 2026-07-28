@@ -1,0 +1,36 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check src tests
+
+      - name: Test
+        run: pytest
+
+      # Proves the headline number in the README is real and not stale.
+      # --strict exits non-zero if any contract-layer fault slips through.
+      - name: Contract detection must stay at 100 percent
+        run: |
+          python -m pulseops generate --events 5000 --seed 42 --fault-rate 0.05
+          python -m pulseops validate --strict

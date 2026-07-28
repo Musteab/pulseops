@@ -1,0 +1,37 @@
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+
+# generated data, reproducible from a seed so it does not belong in git
+data/raw/
+data/seeds/
+data/quarantine/
+
+# secrets and cloud credentials, never commit these
+.env
+*.json.key
+service-account*.json
+credentials*.json
+gcp-key*.json
+
+# dbt
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+profiles.yml
+
+# terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+*.tfvars
+
+# os
+.DS_Store
