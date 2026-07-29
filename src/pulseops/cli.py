@@ -1,7 +1,8 @@
-"""PulseOps command line entry point.
+"""the cli. everything you can do to this pipeline from a terminal.
 
     python -m pulseops generate --events 5000 --fault-rate 0.05
     python -m pulseops validate --events data/raw/events.jsonl
+    python -m pulseops publish --sink file://data/raw/published.jsonl
 """
 
 from __future__ import annotations
@@ -9,6 +10,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import sys
 from collections import Counter
 from datetime import date, datetime
@@ -17,6 +19,8 @@ from pathlib import Path
 from .contracts import CURRENT_VERSION, validate_event
 from .generator.catalog import menu_items_as_rows, outlets_as_rows
 from .generator.generate import FAULT_TYPES, generate
+from .ingest.publish import publish_events, read_events
+from .ingest.sinks import sink_from_uri
 
 DEFAULT_RAW = Path("data/raw")
 DEFAULT_SEEDS = Path("data/seeds")
@@ -150,6 +154,43 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_publish(args: argparse.Namespace) -> int:
+    events_path = Path(args.events)
+    if not events_path.exists():
+        print(f"no events at {events_path}, run generate first", file=sys.stderr)
+        return 1
+
+    # sink uri can come from the env so the same command works locally and
+    # against the real project without anyone editing a makefile
+    uri = args.sink or os.environ.get("PULSEOPS_SINK") or f"file://{DEFAULT_RAW}/published.jsonl"
+
+    print(f"sink             {uri}")
+    with sink_from_uri(uri) as sink:
+        stats = publish_events(
+            read_events(events_path), sink, limit=args.limit, progress_every=args.progress_every
+        )
+
+    numbers = stats.as_dict()
+    print(f"published        {numbers['published']}")
+    if numbers["failed"]:
+        print(f"failed           {numbers['failed']}")
+    print(f"elapsed          {numbers['elapsed_s']}s")
+    print(f"throughput       {numbers['throughput_per_s']}/s")
+    lat = numbers["latency_ms"]
+    print(
+        f"latency ms       p50 {lat['p50']}  p95 {lat['p95']}  "
+        f"p99 {lat['p99']}  max {lat['max']}"
+    )
+
+    if args.stats_out:
+        out = Path(args.stats_out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(numbers, indent=2) + "\n", encoding="utf-8")
+        print(f"stats            {out}")
+
+    return 1 if numbers["failed"] else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pulseops", description="Synthetic restaurant data platform toolkit"
@@ -177,6 +218,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="exit non-zero if any contract-layer fault slipped through",
     )
     val.set_defaults(func=cmd_validate)
+
+    pub = sub.add_parser("publish", help="push events at a sink and time it")
+    pub.add_argument("--events", default=str(DEFAULT_RAW / "events.jsonl"))
+    pub.add_argument(
+        "--sink", default=None,
+        help="file://path or pubsub://project/topic, falls back to $PULSEOPS_SINK",
+    )
+    pub.add_argument("--limit", type=int, default=None, help="stop after this many events")
+    pub.add_argument("--stats-out", default=None, help="write the run stats as json")
+    pub.add_argument(
+        "--progress-every", type=int, default=0, help="print progress every n events",
+    )
+    pub.set_defaults(func=cmd_publish)
 
     return parser
 
