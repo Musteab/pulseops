@@ -24,6 +24,7 @@ from .ingest.sinks import sink_from_uri
 
 DEFAULT_RAW = Path("data/raw")
 DEFAULT_SEEDS = Path("data/seeds")
+DEFAULT_WAREHOUSE = Path("data/warehouse")
 
 
 def _iso_date(value: str) -> date:
@@ -191,6 +192,46 @@ def cmd_publish(args: argparse.Namespace) -> int:
     return 1 if numbers["failed"] else 0
 
 
+def cmd_subscribe(args: argparse.Namespace) -> int:
+    from .ingest.stores import store_from_uri
+    from .ingest.subscribe import pull_and_route
+
+    store_uri = args.store or os.environ.get("PULSEOPS_STORE") or f"file://{DEFAULT_WAREHOUSE}"
+    project = args.project or os.environ.get("GCP_PROJECT_ID")
+    if not project:
+        print("need --project or $GCP_PROJECT_ID", file=sys.stderr)
+        return 1
+
+    print(f"subscription     {project}/{args.subscription}")
+    print(f"store            {store_uri}")
+
+    with store_from_uri(store_uri) as store:
+        counts = pull_and_route(
+            project_id=project,
+            subscription_id=args.subscription,
+            store=store,
+            max_messages=args.max_messages,
+        )
+
+    numbers = counts.as_dict()
+    print(f"routed           {numbers['total']}")
+    print(f"  raw            {numbers['raw']}")
+    print(f"  quarantined    {numbers['quarantine']}")
+
+    if numbers["violation_codes"]:
+        print("\nwhy things were rejected:")
+        for code, n in sorted(numbers["violation_codes"].items(), key=lambda kv: -kv[1]):
+            print(f"  {n:>5}  {code}")
+
+    if args.stats_out:
+        out = Path(args.stats_out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(numbers, indent=2) + "\n", encoding="utf-8")
+        print(f"\nstats            {out}")
+
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pulseops", description="Synthetic restaurant data platform toolkit"
@@ -231,6 +272,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--progress-every", type=int, default=0, help="print progress every n events",
     )
     pub.set_defaults(func=cmd_publish)
+
+    subs = sub.add_parser("subscribe", help="drain the queue, enforce the contract, route")
+    subs.add_argument("--project", default=None, help="gcp project, falls back to $GCP_PROJECT_ID")
+    subs.add_argument("--subscription", default="pulseops-orders-ingest")
+    subs.add_argument(
+        "--store", default=None,
+        help="file://directory or bq://project, falls back to $PULSEOPS_STORE",
+    )
+    subs.add_argument("--max-messages", type=int, default=100_000)
+    subs.add_argument("--stats-out", default=None, help="write the routing counts as json")
+    subs.set_defaults(func=cmd_subscribe)
 
     return parser
 
