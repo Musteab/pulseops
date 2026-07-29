@@ -1,13 +1,11 @@
-"""Versioned data contract for PulseOps order events.
+"""the contract. what a valid order event looks like, and what happens when it isn't one.
 
-Every producer writes events that conform to a contract version. Consumers
-declare which versions they accept. When a producer starts emitting a shape
-the consumer did not agree to, that is a contract violation and the record is
-quarantined rather than silently loaded.
+producers agree to emit this shape, consumers agree to accept it. when someone
+upstream changes the shape without telling anyone, the record goes to quarantine
+instead of quietly loading as nulls. that is the whole reason this file exists.
 
-This module is the single source of truth for that agreement. The generator
-uses it to emit valid events, the ingest layer uses it to reject invalid ones,
-and the eval suite uses it to score how many injected faults were caught.
+everything leans on it: the generator emits against it, ingest enforces it, and
+the tests make sure those two haven't drifted apart behind our backs.
 """
 
 from __future__ import annotations
@@ -25,7 +23,7 @@ PAYMENT_STATUSES = ("captured", "pending", "failed", "refunded")
 
 @dataclass(frozen=True)
 class FieldRule:
-    """One field's expectations inside a contract."""
+    """one field's rules. what it's called, what type it should be, what it may hold."""
 
     name: str
     kind: type | tuple[type, ...]
@@ -65,7 +63,7 @@ LINE_FIELDS: tuple[FieldRule, ...] = (
 
 @dataclass
 class Violation:
-    """A single reason one event failed the contract."""
+    """one reason an event got kicked out."""
 
     code: str
     path: str
@@ -106,7 +104,8 @@ def _check_fields(
                 found.append(Violation("null_value", path, "field is null"))
             continue
 
-        # bool is a subclass of int in python, so reject it explicitly for numerics
+        # bool is a subclass of int in python, so True would sail through as a
+        # perfectly good price if we didn't say something. cursed but true
         if isinstance(value, bool) and rule.kind is not bool:
             found.append(Violation("type_mismatch", path, "got bool"))
             continue
@@ -137,10 +136,11 @@ def _check_fields(
 
 
 def validate_event(event: Any) -> ValidationResult:
-    """Check one decoded event against the current contract.
+    """check one event against the contract.
 
-    Returns every violation found rather than failing on the first one, so the
-    quarantine table records the full reason an event was rejected.
+    collects every violation instead of bailing on the first one. if a record is
+    broken four different ways you want all four written down, not a scavenger
+    hunt where you fix one and rerun to find the next.
     """
     if not isinstance(event, dict):
         return ValidationResult(
@@ -191,7 +191,7 @@ def validate_event(event: Any) -> ValidationResult:
 
 
 def _check_arithmetic(event: dict[str, Any]) -> list[Violation]:
-    """Business rules that span more than one field."""
+    """the checks that need more than one field. mostly: does the maths add up."""
     found: list[Violation] = []
     lines = event.get("lines")
     total = event.get("order_total_myr")

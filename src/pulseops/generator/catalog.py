@@ -1,9 +1,8 @@
-"""Static reference data for the synthetic restaurant.
+"""the outlets and the menu. boring file, load bearing anyway.
 
-These are the natural keys behind dim_outlet and dim_menu_item. They get
-written out as CSV seeds so the warehouse has something to join against, which
-is what makes referential-integrity checks meaningful: an event pointing at a
-menu_item_id that is not in this list is a genuine orphan.
+these are the natural keys behind dim_outlet and dim_menu_item, and they get
+dumped to csv as dbt seeds so the warehouse has something to join against.
+without them an orphaned foreign key is just a vibe. with them it's a failing test.
 """
 
 from __future__ import annotations
@@ -67,7 +66,7 @@ MENU_ITEMS: tuple[MenuItem, ...] = (
 MENU_BY_ID: dict[str, MenuItem] = {item.menu_item_id: item for item in MENU_ITEMS}
 OUTLET_IDS: tuple[str, ...] = tuple(o.outlet_id for o in OUTLETS)
 
-# A menu id that deliberately does not exist, used by the orphan fault.
+# a menu id that will never exist. the orphan fault points at this on purpose
 UNKNOWN_MENU_ITEM_ID = "MI-9999"
 
 
