@@ -1,0 +1,56 @@
+[
+  {
+    "name": "message_id",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "pubsub message id"
+  },
+  {
+    "name": "event_id",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "nullable on purpose, a record can fail precisely because it has no id"
+  },
+  {
+    "name": "schema_version",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "version the producer claimed, often the thing that went wrong"
+  },
+  {
+    "name": "publish_ts",
+    "type": "TIMESTAMP",
+    "mode": "NULLABLE",
+    "description": "when pubsub accepted the message"
+  },
+  {
+    "name": "quarantined_ts",
+    "type": "TIMESTAMP",
+    "mode": "REQUIRED",
+    "description": "when we rejected it, used for partitioning"
+  },
+  {
+    "name": "violation_codes",
+    "type": "STRING",
+    "mode": "REPEATED",
+    "description": "flat list of codes so you can group by failure mode without parsing json"
+  },
+  {
+    "name": "violations",
+    "type": "JSON",
+    "mode": "REQUIRED",
+    "description": "every violation with its path and detail, the full diagnosis"
+  },
+  {
+    "name": "payload",
+    "type": "JSON",
+    "mode": "REQUIRED",
+    "description": "the rejected event, kept so it can be replayed once the producer is fixed"
+  },
+  {
+    "name": "replayed_at",
+    "type": "TIMESTAMP",
+    "mode": "NULLABLE",
+    "description": "set when this record has been successfully replayed into raw"
+  }
+]

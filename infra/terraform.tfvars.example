@@ -1,0 +1,8 @@
+# copy to terraform.tfvars and fill in. tfvars is gitignored.
+
+project_id = "your-project-id-here"
+
+# everything else has a sensible default. singapore is the closest region to KL
+# that has the full set of services.
+# region      = "asia-southeast1"
+# bq_location = "asia-southeast1"

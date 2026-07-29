@@ -1,0 +1,38 @@
+[
+  {
+    "name": "message_id",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "pubsub message id, unique per delivery not per event"
+  },
+  {
+    "name": "event_id",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "business key lifted out of the payload so staging can dedupe on it"
+  },
+  {
+    "name": "schema_version",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "contract version the producer claimed to be emitting"
+  },
+  {
+    "name": "publish_ts",
+    "type": "TIMESTAMP",
+    "mode": "NULLABLE",
+    "description": "when pubsub accepted the message"
+  },
+  {
+    "name": "ingest_ts",
+    "type": "TIMESTAMP",
+    "mode": "REQUIRED",
+    "description": "when the subscriber wrote this row, used for partitioning"
+  },
+  {
+    "name": "payload",
+    "type": "JSON",
+    "mode": "REQUIRED",
+    "description": "the event exactly as received, never edited"
+  }
+]
