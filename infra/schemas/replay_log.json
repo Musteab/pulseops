@@ -1,0 +1,32 @@
+[
+  {
+    "name": "event_id",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "the record we attempted to rescue, null when it was too broken to have an id"
+  },
+  {
+    "name": "replayed_at",
+    "type": "TIMESTAMP",
+    "mode": "REQUIRED",
+    "description": "when the attempt happened, also the partition column"
+  },
+  {
+    "name": "status",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "repaired, unrepairable, or still_invalid"
+  },
+  {
+    "name": "rules_applied",
+    "type": "STRING",
+    "mode": "REPEATED",
+    "description": "which repair rules fired, empty when none matched"
+  },
+  {
+    "name": "reason",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "why it was rescued or refused, in words"
+  }
+]

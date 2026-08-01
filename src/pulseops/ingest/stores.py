@@ -21,6 +21,7 @@ from urllib.parse import urlparse
 
 RAW_TABLE = "pulseops_raw.orders_raw"
 QUARANTINE_TABLE = "pulseops_quarantine.orders_quarantine"
+REPLAY_LOG_TABLE = "pulseops_quarantine.replay_log"
 
 
 class Store(ABC):
@@ -33,6 +34,19 @@ class Store(ABC):
     @abstractmethod
     def write_quarantine(self, rows: list[dict[str, Any]]) -> int:
         """append rows to quarantine. returns how many landed."""
+
+    @abstractmethod
+    def write_replay_log(self, rows: list[dict[str, Any]]) -> int:
+        """append replay attempts, successful or not."""
+
+    @abstractmethod
+    def read_unreplayed_quarantine(self, limit: int = 10_000) -> list[dict[str, Any]]:
+        """quarantined records nobody has already tried to rescue.
+
+        the replay log is the idempotency guard. an event that has been through
+        replay before is skipped no matter how it went, so rerunning the command
+        cannot double count revenue.
+        """
 
     def close(self) -> None:  # noqa: B027, optional hook, not every store buffers
         """flush anything held back."""
@@ -52,6 +66,7 @@ class FileStore(Store):
         self.directory.mkdir(parents=True, exist_ok=True)
         self.raw_path = self.directory / "orders_raw.jsonl"
         self.quarantine_path = self.directory / "orders_quarantine.jsonl"
+        self.replay_log_path = self.directory / "replay_log.jsonl"
 
     def _append(self, path: Path, rows: list[dict[str, Any]]) -> int:
         if not rows:
@@ -66,6 +81,31 @@ class FileStore(Store):
 
     def write_quarantine(self, rows: list[dict[str, Any]]) -> int:
         return self._append(self.quarantine_path, rows)
+
+    def write_replay_log(self, rows: list[dict[str, Any]]) -> int:
+        return self._append(self.replay_log_path, rows)
+
+    def _read(self, path: Path) -> list[dict[str, Any]]:
+        if not path.exists():
+            return []
+        return [
+            json.loads(line)
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+
+    def read_unreplayed_quarantine(self, limit: int = 10_000) -> list[dict[str, Any]]:
+        already_tried = {
+            row.get("event_id")
+            for row in self._read(self.replay_log_path)
+            if row.get("event_id")
+        }
+        pending = [
+            row
+            for row in self._read(self.quarantine_path)
+            if row.get("event_id") not in already_tried
+        ]
+        return pending[:limit]
 
 
 class BigQueryStore(Store):
@@ -83,6 +123,7 @@ class BigQueryStore(Store):
         project_id: str,
         raw_table: str = RAW_TABLE,
         quarantine_table: str = QUARANTINE_TABLE,
+        replay_log_table: str = REPLAY_LOG_TABLE,
     ) -> None:
         try:
             from google.cloud import bigquery
@@ -95,6 +136,7 @@ class BigQueryStore(Store):
         self.project_id = project_id
         self.raw_table = f"{project_id}.{raw_table}"
         self.quarantine_table = f"{project_id}.{quarantine_table}"
+        self.replay_log_table = f"{project_id}.{replay_log_table}"
         self._client = bigquery.Client(project=project_id)
 
     @classmethod
@@ -119,6 +161,36 @@ class BigQueryStore(Store):
 
     def write_quarantine(self, rows: list[dict[str, Any]]) -> int:
         return self._insert(self.quarantine_table, rows)
+
+    def write_replay_log(self, rows: list[dict[str, Any]]) -> int:
+        return self._insert(self.replay_log_table, rows)
+
+    def read_unreplayed_quarantine(self, limit: int = 10_000) -> list[dict[str, Any]]:
+        # anti-join against the log rather than a flag on the quarantine row.
+        # bigquery refuses to UPDATE rows still sitting in the streaming buffer,
+        # which would be precisely the ones we just quarantined.
+        query = f"""
+            select q.event_id, q.message_id, q.violation_codes, q.payload
+            from `{self.quarantine_table}` as q
+            left join `{self.replay_log_table}` as r
+              on q.event_id = r.event_id
+            where r.event_id is null
+            limit {int(limit)}
+        """
+        rows = []
+        for row in self._client.query(query).result():
+            payload = row["payload"]
+            rows.append(
+                {
+                    "event_id": row["event_id"],
+                    "message_id": row["message_id"],
+                    "violation_codes": list(row["violation_codes"] or []),
+                    # the JSON column comes back as a string, and downstream
+                    # wants the actual object
+                    "payload": json.loads(payload) if isinstance(payload, str) else payload,
+                }
+            )
+        return rows
 
 
 def store_from_uri(uri: str) -> Store:

@@ -119,3 +119,27 @@ resource "google_bigquery_table" "orders_quarantine" {
 
   clustering = ["schema_version", "event_id"]
 }
+
+# every attempt to rescue a quarantined record, successful or not.
+#
+# this exists as its own append-only table rather than as an updated column on
+# the quarantine row for two reasons. bigquery will not let you UPDATE rows that
+# are still in the streaming buffer, so marking them in place fails for exactly
+# the records you most recently quarantined. and a log of attempts is more
+# useful than a flag anyway: you can see a record that was refused twice before
+# somebody wrote the repair that finally rescued it.
+resource "google_bigquery_table" "replay_log" {
+  dataset_id          = google_bigquery_dataset.quarantine.dataset_id
+  table_id            = "replay_log"
+  schema              = file("${path.module}/schemas/replay_log.json")
+  deletion_protection = false
+
+  require_partition_filter = false
+
+  time_partitioning {
+    type  = "DAY"
+    field = "replayed_at"
+  }
+
+  clustering = ["status", "event_id"]
+}
