@@ -177,8 +177,11 @@ def pull_and_route(
     empty_polls = 0
 
     while counts.total < max_messages:
+        # ask for only what is left, otherwise max_messages becomes a floor
+        # instead of a ceiling and a limit of 50 drains 500
+        want = min(batch_size, 1000, max_messages - counts.total)
         response = client.pull(
-            request={"subscription": path, "max_messages": min(batch_size, 1000)},
+            request={"subscription": path, "max_messages": want},
             timeout=idle_timeout_s,
         )
 
