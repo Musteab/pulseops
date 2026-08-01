@@ -23,7 +23,10 @@ from .ingest.publish import publish_events, read_events
 from .ingest.sinks import sink_from_uri
 
 DEFAULT_RAW = Path("data/raw")
-DEFAULT_SEEDS = Path("data/seeds")
+# seeds go straight into the dbt project. they are deterministic reference data
+# derived from catalog.py, so generating them and having dbt load them keeps one
+# source of truth instead of a csv someone edits by hand and forgets to sync
+DEFAULT_SEEDS = Path("dbt/seeds")
 DEFAULT_WAREHOUSE = Path("data/warehouse")
 
 

@@ -1,0 +1,18 @@
+# copy to profiles.yml and set your project. profiles.yml is gitignored because
+# it names your project and, in some setups, a key file path.
+#
+# method: oauth uses the credentials from `gcloud auth application-default
+# login`, so there is no service-account key to leak. keep it that way.
+
+pulseops:
+  target: dev
+  outputs:
+    dev:
+      type: bigquery
+      method: oauth
+      project: your-project-id-here
+      dataset: pulseops_staging
+      location: asia-southeast1
+      threads: 4
+      priority: interactive
+      job_retries: 1

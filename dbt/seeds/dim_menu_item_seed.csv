@@ -1,0 +1,21 @@
+menu_item_id,name,category,unit_price_myr,is_vegetarian
+MI-1001,Nasi Lemak Ayam Rendang,main,14.9,False
+MI-1002,Char Kuey Teow,main,13.5,False
+MI-1003,Mee Goreng Mamak,main,11.0,True
+MI-1004,Nasi Goreng Kampung,main,12.5,True
+MI-1005,Roti Canai Set,main,8.0,True
+MI-1006,Laksa Penang,main,15.0,False
+MI-1007,Ayam Percik,main,18.9,False
+MI-1008,Beef Rendang Rice,main,19.5,False
+MI-2001,Satay Ayam (6 pcs),side,12.0,False
+MI-2002,Keropok Lekor,side,7.5,True
+MI-2003,Acar Timun,side,4.5,True
+MI-2004,Telur Mata,side,3.0,True
+MI-3001,Teh Tarik,drink,4.5,True
+MI-3002,Kopi O,drink,3.8,True
+MI-3003,Sirap Bandung,drink,5.5,True
+MI-3004,Limau Ais,drink,4.0,True
+MI-3005,Milo Dinosaur,drink,8.5,True
+MI-4001,Cendol,dessert,7.9,True
+MI-4002,Ais Kacang,dessert,8.9,True
+MI-4003,Kuih Platter,dessert,9.5,True

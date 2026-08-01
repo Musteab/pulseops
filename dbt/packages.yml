@@ -1,0 +1,6 @@
+packages:
+  # surrogate keys and a few extra generic tests. essentially standard issue in
+  # a dbt project, and hand-rolling md5 concatenation is how you get subtle
+  # null-handling bugs in your primary keys.
+  - package: dbt-labs/dbt_utils
+    version: [">=1.3.0", "<2.0.0"]

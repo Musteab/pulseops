@@ -1,0 +1,41 @@
+name: pulseops
+version: "1.0.0"
+config-version: 2
+
+profile: pulseops
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+vars:
+  # sentinel key for the unknown dimension member. a fixed literal rather than a
+  # hash so it is recognisable on sight in a query result.
+  unknown_key: "-1"
+
+models:
+  pulseops:
+    staging:
+      # views, because staging is a thin reshaping of raw and materialising it
+      # would mean paying storage twice for the same rows
+      +materialized: view
+      +schema: pulseops_staging
+    marts:
+      # tables, because the marts get queried repeatedly by dashboards and an
+      # agent, and a view would re-scan raw every single time
+      +materialized: table
+      +schema: pulseops_mart
+
+seeds:
+  pulseops:
+    +schema: pulseops_staging
+    dim_outlet_seed:
+      +column_types:
+        seats: INT64
+    dim_menu_item_seed:
+      +column_types:
+        unit_price_myr: NUMERIC
+        is_vegetarian: BOOLEAN

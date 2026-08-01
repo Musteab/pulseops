@@ -1,0 +1,6 @@
+outlet_id,name,city,state,opened_on,seats
+OUT-KL-001,TableTap Bukit Bintang,Kuala Lumpur,WP Kuala Lumpur,2023-03-14,68
+OUT-KL-002,TableTap Bangsar,Kuala Lumpur,WP Kuala Lumpur,2023-09-01,44
+OUT-SL-001,TableTap Subang Jaya,Subang Jaya,Selangor,2024-01-20,52
+OUT-SL-002,TableTap Petaling Jaya,Petaling Jaya,Selangor,2024-06-11,60
+OUT-PG-001,TableTap Georgetown,Georgetown,Pulau Pinang,2025-02-03,38

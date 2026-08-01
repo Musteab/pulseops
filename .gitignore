@@ -35,3 +35,5 @@ profiles.yml
 
 # os
 .DS_Store
+.venv-dbt/
+dbt/.user.yml
