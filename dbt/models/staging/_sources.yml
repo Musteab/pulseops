@@ -1,0 +1,60 @@
+version: 2
+
+sources:
+  - name: raw
+    database: "{{ target.project }}"
+    schema: pulseops_raw
+    description: >
+      Append-only landing zone. Written by the subscriber, never edited by dbt.
+      Everything in here already passed the ingest-time contract, so what
+      remains are the faults a single record cannot reveal about itself.
+
+    tables:
+      - name: orders_raw
+        description: >
+          One row per Pub/Sub delivery, so duplicates are expected here.
+
+          The table is created with require_partition_filter, which is why every
+          test below carries a where clause. That guard is deliberate: it stops
+          anyone full-scanning the largest table in the project by accident, and
+          tests do not get an exemption from it.
+
+        columns:
+          - name: message_id
+            description: Pub/Sub message id, unique per delivery rather than per event.
+            data_tests:
+              - not_null:
+                  config: &raw_partition_filter
+                    where: "ingest_ts >= timestamp('2020-01-01')"
+
+          - name: event_id
+            description: >
+              Business key. Deliberately not tested for uniqueness at this
+              layer: at-least-once delivery means duplicates belong here, and
+              removing them is the staging model's job.
+            data_tests:
+              - not_null:
+                  config: *raw_partition_filter
+
+          - name: ingest_ts
+            data_tests:
+              - not_null:
+                  config: *raw_partition_filter
+
+          - name: payload
+            data_tests:
+              - not_null:
+                  config: *raw_partition_filter
+
+  - name: quarantine
+    database: "{{ target.project }}"
+    schema: pulseops_quarantine
+    description: Records rejected by the contract, kept with their violations for replay.
+
+    tables:
+      - name: orders_quarantine
+        columns:
+          - name: message_id
+            data_tests: [not_null]
+          - name: violations
+            data_tests: [not_null]

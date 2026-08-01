@@ -1,0 +1,51 @@
+version: 2
+
+models:
+  - name: stg_orders
+    description: >
+      One row per order, deduplicated on event_id. This is the model that
+      resolves the at-least-once deliveries sitting in raw.
+
+    columns:
+      - name: event_id
+        description: >
+          Unique here even though it is deliberately not unique in raw. If this
+          test fails, deduplication has broken and every revenue figure
+          downstream is overstated.
+        data_tests:
+          - unique
+          - not_null
+
+      - name: order_total_myr
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+
+      - name: event_ts
+        data_tests: [not_null]
+
+      - name: outlet_id
+        data_tests: [not_null]
+
+      - name: source_ingest_ts
+        description: When the source system received the event, as stamped by the producer.
+        data_tests: [not_null]
+
+      - name: was_redelivered
+        description: True when Pub/Sub sent this event more than once.
+        data_tests: [not_null]
+
+  - name: stg_order_lines
+    description: One row per line item, exploded out of the order payload.
+
+    columns:
+      - name: order_line_key
+        data_tests: [unique, not_null]
+      - name: event_id
+        data_tests: [not_null]
+      - name: menu_item_id
+        data_tests: [not_null]
+      - name: qty
+        data_tests: [not_null]

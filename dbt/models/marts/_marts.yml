@@ -1,0 +1,112 @@
+version: 2
+
+models:
+  - name: fct_order_line
+    description: >
+      One row per line item. The centre of the star, partitioned on order_date
+      and clustered on outlet_key because that is how it gets queried.
+
+    data_tests:
+      - dbt_utils.expression_is_true:
+          expression: "line_total_myr = qty * unit_price_myr"
+          config:
+            severity: error
+      - dbt_utils.expression_is_true:
+          expression: "captured_revenue_myr <= line_total_myr"
+
+    columns:
+      - name: order_line_key
+        description: Surrogate key over event_id and line position.
+        data_tests:
+          - unique
+          - not_null
+
+      - name: event_id
+        data_tests: [not_null]
+
+      - name: outlet_key
+        description: Foreign key to dim_outlet.
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('dim_outlet')
+              field: outlet_key
+
+      - name: menu_item_key
+        description: >
+          Foreign key to dim_menu_item, never null because orphaned lines
+          attach to the unknown member instead. The orphan count is reported by
+          dq_warehouse_faults rather than left as a permanently failing test.
+
+          Worth knowing: relationships alone would not have caught these. dbt's
+          relationships test skips null values, so before the unknown member
+          existed it passed while 17 rows had no menu item at all. not_null was
+          what actually caught them.
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('dim_menu_item')
+              field: menu_item_key
+
+      - name: date_key
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('dim_date')
+              field: date_key
+
+      - name: qty
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 1
+              inclusive: true
+
+      - name: unit_price_myr
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+
+      - name: channel
+        data_tests:
+          - accepted_values:
+              values: ["dine_in", "takeaway", "delivery"]
+
+      - name: payment_status
+        data_tests:
+          - accepted_values:
+              values: ["captured", "pending", "failed", "refunded"]
+
+  - name: dim_outlet
+    columns:
+      - name: outlet_key
+        data_tests: [unique, not_null]
+      - name: outlet_id
+        data_tests: [unique, not_null]
+
+  - name: dim_menu_item
+    columns:
+      - name: menu_item_key
+        data_tests: [unique, not_null]
+      - name: menu_item_id
+        data_tests: [unique, not_null]
+      - name: category
+        data_tests:
+          # "unknown" belongs here: it is the sentinel row's category, and
+          # leaving it out would mean the unknown member trips the very test
+          # that is supposed to police real menu data
+          - accepted_values:
+              values: ["main", "side", "drink", "dessert", "unknown"]
+
+      - name: is_unknown_member
+        description: True for the single sentinel row that orphaned lines attach to.
+        data_tests: [not_null]
+
+  - name: dim_date
+    columns:
+      - name: date_key
+        data_tests: [unique, not_null]
+      - name: date_day
+        data_tests: [unique, not_null]
