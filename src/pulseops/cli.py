@@ -235,6 +235,48 @@ def cmd_subscribe(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_replay(args: argparse.Namespace) -> int:
+    from .ingest.replay import repair_rules, replay_quarantine
+    from .ingest.stores import store_from_uri
+
+    store_uri = args.store or os.environ.get("PULSEOPS_STORE") or f"file://{DEFAULT_WAREHOUSE}"
+
+    if args.list_rules:
+        print("repairs this pipeline knows how to make:\n")
+        for name, describes in repair_rules():
+            print(f"  {name:<20} {describes}")
+        print("\neverything else is refused. repairing format is fine, inventing")
+        print("values that were never sent is not.")
+        return 0
+
+    print(f"store            {store_uri}")
+    if args.dry_run:
+        print("mode             dry run, nothing will be written")
+
+    with store_from_uri(store_uri) as store:
+        counts = replay_quarantine(store, limit=args.limit, dry_run=args.dry_run)
+
+    numbers = counts.as_dict()
+    print(f"attempted        {numbers['attempted']}")
+    print(f"  repaired       {numbers['repaired']}")
+    print(f"  unrepairable   {numbers['unrepairable']}")
+    if numbers["still_invalid"]:
+        print(f"  still invalid  {numbers['still_invalid']}")
+
+    if numbers["rules_fired"]:
+        print("\nrepairs applied:")
+        for rule, n in sorted(numbers["rules_fired"].items(), key=lambda kv: -kv[1]):
+            print(f"  {n:>5}  {rule}")
+
+    if args.stats_out:
+        out = Path(args.stats_out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(numbers, indent=2) + "\n", encoding="utf-8")
+        print(f"\nstats            {out}")
+
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pulseops", description="Synthetic restaurant data platform toolkit"
@@ -286,6 +328,22 @@ def build_parser() -> argparse.ArgumentParser:
     subs.add_argument("--max-messages", type=int, default=100_000)
     subs.add_argument("--stats-out", default=None, help="write the routing counts as json")
     subs.set_defaults(func=cmd_subscribe)
+
+    rep = sub.add_parser("replay", help="repair what can be repaired and re-send it")
+    rep.add_argument(
+        "--store", default=None,
+        help="file://directory or bq://project, falls back to $PULSEOPS_STORE",
+    )
+    rep.add_argument("--limit", type=int, default=10_000)
+    rep.add_argument(
+        "--dry-run", action="store_true",
+        help="report what would happen without writing anything",
+    )
+    rep.add_argument(
+        "--list-rules", action="store_true", help="show the repairs and exit",
+    )
+    rep.add_argument("--stats-out", default=None)
+    rep.set_defaults(func=cmd_replay)
 
     return parser
 
