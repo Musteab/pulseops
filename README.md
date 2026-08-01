@@ -68,6 +68,28 @@ Three decisions in that layer are worth naming:
 
 **`relationships` would not have caught them.** dbt's relationships test skips nulls, so it passed while 17 rows had no menu item at all. `not_null` on the foreign key is what actually caught it. Worth knowing before you trust a green test run.
 
+## Replay: repairing what can be repaired
+
+Quarantine is only worth keeping if something can come back out of it. `pulseops replay` reads every record nobody has attempted before, repairs what it can, and re-sends it into raw as a fresh delivery.
+
+```
+$ pulseops replay --store bq://YOUR-PROJECT
+
+attempted        185
+  repaired        40
+  unrepairable   145
+
+repairs applied:
+     26  v2_total_rename
+     14  locale_timestamp
+```
+
+Rebuilding the warehouse afterwards moves captured revenue from **RM 212,901.30 to RM 214,697.50** across 40 recovered orders. That is the schema-drift demo closing: the money was never lost, it was sitting in quarantine under a different field name, and the repair brought it back.
+
+**The 145 refusals are the point, not a shortfall.** A record whose total was renamed is recoverable, because the number is still there under another key. A record with no `outlet_id` is not, because nothing tells you which restaurant took the order. Every repair in `replay.py` is a pure rename or reformat of data that is already present, and seven tests exist specifically to fail if any of them ever starts inventing a value. Fabricating data to turn a dashboard green is worse than leaving it red.
+
+**Rerunning is safe.** Attempts are recorded in an append-only `replay_log` and anti-joined on the next run, so a second `replay` reports `attempted 0` and revenue does not move. The log is a separate table rather than a flag on the quarantine row for a specific reason: BigQuery refuses to `UPDATE` rows still in the streaming buffer, which would be exactly the records most recently quarantined.
+
 **Lateness is measured from the producer's clock, not ours.** The row's `ingest_ts` records when this pipeline stored it, which during a replay of historical data is simply "whenever the drain ran". Computing lag from it flagged all 4815 orders as late. The signal lives in the timestamp the source system stamped, which travels inside the payload. The manifest is what exposed the mistake.
 
 ## Quickstart
@@ -212,11 +234,11 @@ Built and tested:
 - [x] Terraform for every GCP resource, including a dead-letter topic
 - [x] dbt staging models and a star schema (`fct_order_line`, `dim_outlet`, `dim_menu_item`, `dim_date`)
 - [x] 59 dbt tests and a warehouse fault scorecard reconciling against the manifest
-- [x] 60 python tests, lint, and a CI job that enforces the headline number
+- [x] Quarantine replay that repairs format, refuses to invent values, and cannot double count
+- [x] 84 python tests, lint, and a CI job that enforces the headline number
 
 Roadmap, in build order:
 
-- [ ] Quarantine replay path with idempotency guarantees
 - [ ] Airflow DAG for the batch and API sources
 - [ ] Looker Studio dashboard for revenue and pipeline health
 - [ ] Data-reliability copilot with allowlisted read-only tools
