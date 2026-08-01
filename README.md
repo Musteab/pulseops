@@ -37,6 +37,19 @@ warehouse layer  65 deferred to dbt tests
 
 That last split is the honest part. The ingest-time contract cannot catch a duplicate delivery or an orphaned foreign key, because neither is visible from a single record. Those are tagged `warehouse` and handed to the dbt test layer instead of being quietly counted as a win.
 
+## The same run, on real infrastructure
+
+The offline numbers above are not a simulation of the cloud path, they are the same code. Publishing all 5022 events through Pub/Sub and draining them into BigQuery reproduces them exactly:
+
+| | Offline | Through Pub/Sub into BigQuery |
+|---|---|---|
+| Events | 5022 | 5022 published, 0 failed |
+| Passed the contract | 4837 | 4837 rows in `pulseops_raw.orders_raw` |
+| Quarantined | 185 | 185 rows in `pulseops_quarantine.orders_quarantine` |
+| p95 publish latency | n/a | 67 ms |
+
+Raw holds 4837 rows but only 4815 distinct `event_id` values. That gap of 22 is not a defect, it is the 22 injected `duplicate_event` faults sitting exactly where the design says they should: Pub/Sub delivers at least once, a single record cannot reveal that it is a replay, and deduplication is therefore the warehouse layer's job. The manifest injected 22 duplicates and BigQuery contains 22 extra rows.
+
 ## Quickstart
 
 Needs Python 3.11 or newer. No cloud account, no credentials, no Docker.
@@ -134,6 +147,27 @@ Restrict to a single fault type to study one failure mode in isolation:
 python -m pulseops generate --events 500 --fault-rate 1.0 --fault-types schema_drift
 ```
 
+## Running it against GCP
+
+Everything above works with no cloud account. To run the real path you need a project with billing enabled, then:
+
+```bash
+cd infra && cp terraform.tfvars.example terraform.tfvars   # set project_id
+terraform init && terraform apply
+```
+
+That creates the topic, a dead-letter topic, the pull subscription, four datasets, and the raw and quarantine tables with partitioning and clustering. Then publish and drain:
+
+```bash
+pip install -e ".[gcp]"
+python -m pulseops publish   --sink pubsub://YOUR-PROJECT/pulseops-orders
+python -m pulseops subscribe --project YOUR-PROJECT --store bq://YOUR-PROJECT
+```
+
+No Dataflow and no Cloud Composer anywhere, deliberately. Pub/Sub and BigQuery both have permanent free tiers that comfortably cover this workload; those two services do not, and they are what turns a demo project into a monthly bill. Airflow will run locally in Docker for the same reason.
+
+**No Pub/Sub schema is attached to the topic.** Attaching one would reject malformed events at the edge, which sounds correct and would gut the project: quarantine would stay empty and there would be nothing to study. The contract is enforced by the subscriber instead, where the reason for each rejection can be recorded.
+
 ## Status
 
 Built and tested:
@@ -142,15 +176,16 @@ Built and tested:
 - [x] Deterministic event generator with shaped traffic (hourly peaks, outlet weighting, payment failure rates)
 - [x] Twelve injected fault types with a ground-truth manifest
 - [x] Contract validation, quarantine output, and scored detection
-- [x] 24 tests, lint, and a CI job that enforces the headline number
+- [x] Pub/Sub publishing with measured per-message latency
+- [x] Subscriber that enforces the contract and routes to raw or quarantine
+- [x] Terraform for every GCP resource, including a dead-letter topic
+- [x] 60 tests, lint, and a CI job that enforces the headline number
 
 Roadmap, in build order:
 
-- [ ] Pub/Sub streaming ingestion into the BigQuery raw layer
 - [ ] dbt staging models, star schema (`fct_order_line`, `dim_outlet`, `dim_menu_item`, `dim_date`), and warehouse-layer tests
 - [ ] Quarantine replay path with idempotency guarantees
 - [ ] Airflow DAG for the batch and API sources
-- [ ] Terraform for all GCP resources
 - [ ] Looker Studio dashboard for revenue and pipeline health
 - [ ] Data-reliability copilot with allowlisted read-only tools
 - [ ] Agent evaluation suite scoring tool selection, answer accuracy, and refusal of unsafe writes
@@ -166,8 +201,14 @@ src/pulseops/
     catalog.py          outlets and menu items, also emitted as dbt seeds
     generate.py         deterministic event generation
     faults.py           the twelve injected faults and their ground truth
-  cli.py                generate and validate commands
-tests/                  24 tests, including one per fault type
+  ingest/
+    sinks.py            where events are published, file or Pub/Sub
+    publish.py          the publisher, with per-message latency percentiles
+    subscribe.py        pull, enforce the contract, route
+    stores.py           where rows land, file or BigQuery
+  cli.py                generate, validate, publish, subscribe
+infra/                  Terraform for topics, subscriptions, datasets, tables
+tests/                  60 tests, including one per fault type
 ```
 
 ## Data

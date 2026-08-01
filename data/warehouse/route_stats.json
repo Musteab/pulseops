@@ -1,0 +1,17 @@
+{
+  "total": 4522,
+  "raw": 4349,
+  "quarantine": 173,
+  "undecodable": 0,
+  "violation_codes": {
+    "below_minimum": 37,
+    "empty_lines": 24,
+    "line_total_mismatch": 53,
+    "missing_field": 44,
+    "null_value": 22,
+    "order_total_mismatch": 16,
+    "unparseable_timestamp": 14,
+    "unsupported_schema_version": 25,
+    "value_not_allowed": 16
+  }
+}
