@@ -50,6 +50,26 @@ The offline numbers above are not a simulation of the cloud path, they are the s
 
 Raw holds 4837 rows but only 4815 distinct `event_id` values. That gap of 22 is not a defect, it is the 22 injected `duplicate_event` faults sitting exactly where the design says they should: Pub/Sub delivers at least once, a single record cannot reveal that it is a replay, and deduplication is therefore the warehouse layer's job. The manifest injected 22 duplicates and BigQuery contains 22 extra rows.
 
+## Closing the loop: the warehouse layer
+
+The contract reports 185/185 and then hands over the three fault classes it structurally cannot see. `dq_warehouse_faults` reports what happened to them:
+
+| Fault | Found | Injected | Why ingest could not see it |
+|---|---|---|---|
+| `duplicate_event` | 22 | 22 | Needs the other records |
+| `late_arrival` | 26 | 26 | Needs to know when the window closed |
+| `orphan_menu_item` | 17 | 17 | Needs the menu |
+
+185 at ingest plus 65 in the warehouse equals the 250 faults injected. Every one is accounted for, and neither number is asserted: both are counted against the same manifest.
+
+Three decisions in that layer are worth naming:
+
+**Orphans get an unknown member, not a null and not a delete.** Seventeen order lines reference a menu item that never existed. Dropping them makes revenue quietly wrong; leaving a null key means the fact table can no longer promise a valid join. Instead they attach to a single sentinel row in `dim_menu_item`, so the rows survive, the joins hold, and the damage is countable.
+
+**`relationships` would not have caught them.** dbt's relationships test skips nulls, so it passed while 17 rows had no menu item at all. `not_null` on the foreign key is what actually caught it. Worth knowing before you trust a green test run.
+
+**Lateness is measured from the producer's clock, not ours.** The row's `ingest_ts` records when this pipeline stored it, which during a replay of historical data is simply "whenever the drain ran". Computing lag from it flagged all 4815 orders as late. The signal lives in the timestamp the source system stamped, which travels inside the payload. The manifest is what exposed the mistake.
+
 ## Quickstart
 
 Needs Python 3.11 or newer. No cloud account, no credentials, no Docker.
@@ -168,6 +188,17 @@ No Dataflow and no Cloud Composer anywhere, deliberately. Pub/Sub and BigQuery b
 
 **No Pub/Sub schema is attached to the topic.** Attaching one would reject malformed events at the edge, which sounds correct and would gut the project: quarantine would stay empty and there would be nothing to study. The contract is enforced by the subscriber instead, where the reason for each rejection can be recorded.
 
+Then build the warehouse. dbt needs its own environment because it does not yet support Python 3.14:
+
+```bash
+python3.12 -m venv .venv-dbt && .venv-dbt/bin/pip install dbt-bigquery
+cd dbt && cp profiles.yml.example profiles.yml   # set project
+../.venv-dbt/bin/dbt deps --profiles-dir .
+../.venv-dbt/bin/dbt build --profiles-dir .
+```
+
+`dbt build` runs the seeds, models and all 59 tests in dependency order. Authentication is `oauth`, so it reuses `gcloud auth application-default login` and there is no service-account key anywhere in the project.
+
 ## Status
 
 Built and tested:
@@ -179,11 +210,12 @@ Built and tested:
 - [x] Pub/Sub publishing with measured per-message latency
 - [x] Subscriber that enforces the contract and routes to raw or quarantine
 - [x] Terraform for every GCP resource, including a dead-letter topic
-- [x] 60 tests, lint, and a CI job that enforces the headline number
+- [x] dbt staging models and a star schema (`fct_order_line`, `dim_outlet`, `dim_menu_item`, `dim_date`)
+- [x] 59 dbt tests and a warehouse fault scorecard reconciling against the manifest
+- [x] 60 python tests, lint, and a CI job that enforces the headline number
 
 Roadmap, in build order:
 
-- [ ] dbt staging models, star schema (`fct_order_line`, `dim_outlet`, `dim_menu_item`, `dim_date`), and warehouse-layer tests
 - [ ] Quarantine replay path with idempotency guarantees
 - [ ] Airflow DAG for the batch and API sources
 - [ ] Looker Studio dashboard for revenue and pipeline health
@@ -208,7 +240,11 @@ src/pulseops/
     stores.py           where rows land, file or BigQuery
   cli.py                generate, validate, publish, subscribe
 infra/                  Terraform for topics, subscriptions, datasets, tables
-tests/                  60 tests, including one per fault type
+dbt/
+  models/staging/       dedupe, unpack the JSON, type it
+  models/marts/         the star schema, plus dq_warehouse_faults
+  seeds/                dimension CSVs, written by the generator
+tests/                  60 python tests, including one per fault type
 ```
 
 ## Data
