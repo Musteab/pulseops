@@ -15,7 +15,12 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.6"]
-gcp = ["google-cloud-pubsub>=2.21", "google-cloud-bigquery>=3.25"]
+gcp = [
+    "google-cloud-pubsub>=2.21",
+    "google-cloud-bigquery>=3.25",
+    # the copilot talks to gemini through vertex
+    "google-genai>=1.0",
+]
 
 [project.scripts]
 pulseops = "pulseops.cli:main"

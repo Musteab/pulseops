@@ -14,6 +14,7 @@ here are the tables, it scanned 4MB" is something you can act on.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any
 
 from .guard import DEFAULT_ALLOWED_TABLES, SqlGuardError, check_sql
@@ -54,6 +55,22 @@ class ToolResult:
 
 def refuse(reason: str) -> ToolResult:
     return ToolResult(ok=False, error=reason)
+
+
+def _dry_run_config() -> Any:
+    """a job config that says "plan this, do not run it".
+
+    falls back to a plain object when the bigquery library is absent. the tests
+    inject a fake client precisely so the tool logic can be exercised with no
+    cloud dependency, and importing bigquery here would undo that: CI installs
+    only the dev extra, so every one of those tests failed with
+    "No module named 'google'" while the fake client sat there unused.
+    """
+    try:
+        from google.cloud import bigquery
+    except ImportError:
+        return SimpleNamespace(dry_run=True, use_query_cache=False)
+    return bigquery.QueryJobConfig(dry_run=True, use_query_cache=False)
 
 
 class CopilotTools:
@@ -121,10 +138,7 @@ class CopilotTools:
         )
 
     def _dry_run(self, sql: str) -> int:
-        from google.cloud import bigquery
-
-        config = bigquery.QueryJobConfig(dry_run=True, use_query_cache=False)
-        job = self.client.query(sql, job_config=config)
+        job = self.client.query(sql, job_config=_dry_run_config())
         return int(job.total_bytes_processed or 0)
 
     # -- the narrow ones ---------------------------------------------------
