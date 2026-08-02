@@ -223,6 +223,42 @@ cd dbt && cp profiles.yml.example profiles.yml   # set project
 
 `dbt build` runs 2 seeds, 7 models and 50 tests in dependency order. Authentication is `oauth`, so it reuses `gcloud auth application-default login` and there is no service-account key anywhere in the project.
 
+## The batch sources, and Airflow
+
+Orders stream through Pub/Sub. Two other sources arrive on a daily schedule, orchestrated by an Airflow DAG:
+
+**Inventory** is a synthetic daily stock snapshot, one row per outlet per item per day. Snapshot grain rather than a movement log, because every question anyone actually asks is "what did we have on Tuesday", and reconstructing that from movements is expensive.
+
+**Weather** is real. Open-Meteo, no API key, four cities. It is the only source in this project that is not synthetic, which makes it the only one that can fail for reasons nobody here controls: it can time out, rate limit, or change its response shape. A pipeline where every source is a file you wrote yourself has never had a bad Tuesday.
+
+That source is handled accordingly. One city failing does not lose the other three. The response arrives as parallel arrays, and if they ever come back at different lengths the load is refused rather than zipped to the shortest, because zipping would attach Tuesday's temperature to Monday's date.
+
+### Batch idempotency is not streaming idempotency
+
+Confusing the two is how a table doubles every time someone reruns yesterday.
+
+Streaming deduplicates on a business key after the fact, because at-least-once delivery means the same event genuinely arrives twice. Batch replaces a whole partition, because a rerun means the file was wrong and the new one supersedes it. So the loads use `WRITE_TRUNCATE` against `table$YYYYMMDD`, which swaps one day atomically and leaves the rest alone. `DELETE` then `INSERT` would be two operations with a window in between where the day is missing.
+
+Verified rather than assumed: 700 rows, reload the identical batch, still 700 rows.
+
+The loader also reads its schema from the destination table rather than letting BigQuery autodetect it. Autodetect reads a Python float as `FLOAT64`, the table declares `NUMERIC`, and the load is rejected for changing a column type. Asking the table keeps Terraform as the single definition of the shape.
+
+### Why the DAG runs locally
+
+Cloud Composer bills roughly $300 a month whether a DAG fires or not, because it keeps a GKE cluster warm. This project runs one DAG a day over a few hundred rows. The DAG code is identical either way, so moving it later is a deploy rather than a rewrite, and this README says "Airflow, locally" rather than implying a managed deployment.
+
+```bash
+cd airflow && docker compose up      # http://localhost:8080, admin / admin
+```
+
+Every task is a thin wrapper over a function in `sources/`, so the logic is unit tested without an Airflow install and the DAG owns only scheduling, retries and dependencies.
+
+### What the join buys you
+
+`fct_daily_outlet` puts sales, stock and weather on one row per outlet per day. Orders alone tell you revenue fell. Orders joined to stock and weather tell you whether you ran out of rendang or whether it rained all afternoon.
+
+The weather join goes through `dim_outlet` rather than straight onto the fact. Two outlets share Kuala Lumpur, so joining city to city at fact level would double their revenue.
+
 ## The copilot
 
 The whole platform exists to answer one question, so there is an agent that answers it:
@@ -329,13 +365,21 @@ src/pulseops/
     agent.py            gemini, bounded to those tools
     evalset.py          20 cases and what counts as passing each
     evaluate.py         the runner, with repeat and spread reporting
-  cli.py                generate, validate, publish, subscribe, replay, ask, eval
+  sources/
+    weather.py          open-meteo client, the one real third party
+    inventory.py        daily stock snapshots, deterministic from a seed
+    load.py             partition-replacing batch loads
+  dashboard.py          builds the self-contained html page
+  cli.py                generate, validate, publish, subscribe, replay, ask, eval, dashboard
 infra/                  Terraform for topics, subscriptions, datasets, tables
+airflow/
+  dags/                 the daily batch dag
+  docker-compose.yml    local airflow, deliberately not composer
 dbt/
   models/staging/       dedupe, unpack the JSON, type it
-  models/marts/         the star schema, plus dq_warehouse_faults
+  models/marts/         the star schema, fct_daily_outlet, dq_warehouse_faults
   seeds/                dimension CSVs, written by the generator
-tests/                  166 python tests, including one per fault type
+tests/                  195 python tests, including one per fault type
 ```
 
 ## Data
