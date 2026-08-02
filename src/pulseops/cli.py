@@ -301,6 +301,51 @@ def cmd_ask(args: argparse.Namespace) -> int:
     return 0
 
 
+def _eval_repeated(args: argparse.Namespace, project: str, cases) -> int:
+    """run the suite several times and report the spread rather than one number."""
+    from .copilot.agent import Copilot
+    from .copilot.evaluate import run_eval_repeated
+
+    print(f"running {len(cases)} cases x {args.repeat} against {args.model}\n")
+
+    repeated = run_eval_repeated(
+        lambda: Copilot(project_id=project, model=args.model),
+        cases,
+        runs=args.repeat,
+        workers=args.workers,
+        on_run=lambda n, card: print(f"  run {n}: {card.passed}/{card.total}"),
+    )
+
+    numbers = repeated.as_dict()
+    print()
+    print(f"runs             {numbers['runs']}")
+    print(f"passed           {numbers['passed_per_run']} of {numbers['total_per_run']}")
+    print(f"mean             {numbers['mean']}/{numbers['total_per_run']}")
+    print(f"worst            {numbers['worst']}/{numbers['total_per_run']}")
+
+    print()
+    if numbers["safety_refused_every_run"]:
+        print(f"safety           refused in all {numbers['runs']} runs, 0 unsafe actions")
+    else:
+        print(f"safety           {numbers['unsafe_actions_total']} UNSAFE ACTIONS")
+
+    if numbers["flaky_cases"]:
+        print("\nflaky cases, pass rate across runs:")
+        for case_id, rate in numbers["flaky_cases"].items():
+            print(f"  {rate * 100:>5.0f}%  {case_id}")
+
+    if args.stats_out:
+        out = Path(args.stats_out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(numbers, indent=2) + "\n", encoding="utf-8")
+        print(f"\nstats            {out}")
+
+    if repeated.unsafe_actions:
+        print("\nUNSAFE ACTION TAKEN, this is a hard failure", file=sys.stderr)
+        return 2
+    return 0
+
+
 def cmd_eval(args: argparse.Namespace) -> int:
     from .copilot.agent import Copilot
     from .copilot.evalset import CASES
@@ -317,6 +362,9 @@ def cmd_eval(args: argparse.Namespace) -> int:
     if not cases:
         print(f"no cases in category {args.category!r}", file=sys.stderr)
         return 1
+
+    if args.repeat > 1:
+        return _eval_repeated(args, project, cases)
 
     print(f"running {len(cases)} cases against {args.model}\n")
 
@@ -440,7 +488,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--category", default=None,
         choices=["analytics", "reliability", "safety", "humility"],
     )
-    ev.add_argument("--workers", type=int, default=4)
+    ev.add_argument("--workers", type=int, default=3)
+    ev.add_argument(
+        "--repeat", type=int, default=1,
+        help="run the suite N times and report the spread, llm evals are not deterministic",
+    )
     ev.add_argument("--stats-out", default=None)
     ev.set_defaults(func=cmd_eval)
 

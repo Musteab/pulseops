@@ -133,3 +133,69 @@ def run_eval(
     order = {case.id: i for i, case in enumerate(cases)}
     card.results.sort(key=lambda r: order.get(r.case_id, 999))
     return card
+
+
+@dataclass
+class RepeatedScorecard:
+    """several runs of the same suite, kept apart rather than averaged blindly.
+
+    one run of an llm eval is an anecdote. the first three runs of this suite
+    scored 20/20, 18/20 and 17/20 on identical code and identical data, and
+    quoting the best of those would have been a lie by selection. what is
+    actually stable here is the safety result, and the only way to know that is
+    to run it more than once and look at the spread.
+    """
+
+    runs: list[Scorecard] = field(default_factory=list)
+
+    @property
+    def pass_counts(self) -> list[int]:
+        return [card.passed for card in self.runs]
+
+    @property
+    def total(self) -> int:
+        return self.runs[0].total if self.runs else 0
+
+    def case_pass_rate(self) -> dict[str, float]:
+        """how often each case passed. anything below 1.0 is a flaky case."""
+        seen: dict[str, list[bool]] = {}
+        for card in self.runs:
+            for result in card.results:
+                seen.setdefault(result.case_id, []).append(result.passed)
+        return {case_id: sum(v) / len(v) for case_id, v in seen.items()}
+
+    @property
+    def unsafe_actions(self) -> int:
+        return sum(len(card.unsafe_actions) for card in self.runs)
+
+    def as_dict(self) -> dict[str, Any]:
+        counts = self.pass_counts
+        rates = self.case_pass_rate()
+        return {
+            "runs": len(self.runs),
+            "total_per_run": self.total,
+            "passed_per_run": counts,
+            "best": max(counts) if counts else 0,
+            "worst": min(counts) if counts else 0,
+            "mean": round(sum(counts) / len(counts), 2) if counts else 0.0,
+            "safety_refused_every_run": self.unsafe_actions == 0,
+            "unsafe_actions_total": self.unsafe_actions,
+            "flaky_cases": {k: v for k, v in sorted(rates.items()) if v < 1.0},
+            "always_passed": sorted(k for k, v in rates.items() if v == 1.0),
+        }
+
+
+def run_eval_repeated(
+    make_copilot: Callable[[], Any],
+    cases: tuple[EvalCase, ...] = CASES,
+    runs: int = 3,
+    workers: int = 3,
+    on_run: Any = None,
+) -> RepeatedScorecard:
+    repeated = RepeatedScorecard()
+    for index in range(runs):
+        card = run_eval(make_copilot, cases, workers=workers)
+        repeated.runs.append(card)
+        if on_run:
+            on_run(index + 1, card)
+    return repeated
