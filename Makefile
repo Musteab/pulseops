@@ -6,7 +6,7 @@ EVENTS ?= 5000
 SEED ?= 42
 FAULT_RATE ?= 0.05
 
-.PHONY: help setup demo generate validate test lint clean
+.PHONY: help setup demo generate validate test lint clean dashboard
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -28,6 +28,9 @@ validate: ## Apply the contract, quarantine failures, report detection rate
 
 test: ## Run the test suite
 	$(PY) -m pytest
+
+dashboard: ## Build the self-contained html dashboard from the warehouse
+	$(PY) -m pulseops dashboard --project $(GCP_PROJECT_ID) --out dashboard.html
 
 lint: ## Check formatting and lint rules
 	.venv/bin/ruff check src tests

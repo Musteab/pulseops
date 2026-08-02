@@ -407,6 +407,20 @@ def cmd_eval(args: argparse.Namespace) -> int:
     return 0 if card.passed == card.total else 1
 
 
+def cmd_dashboard(args: argparse.Namespace) -> int:
+    from .dashboard import build_dashboard
+
+    project = args.project or os.environ.get("GCP_PROJECT_ID")
+    if not project:
+        print("need --project or $GCP_PROJECT_ID", file=sys.stderr)
+        return 1
+
+    out = build_dashboard(project, args.out)
+    size = out.stat().st_size / 1024
+    print(f"dashboard        {out}  ({size:.0f} KB, self-contained)")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pulseops", description="Synthetic restaurant data platform toolkit"
@@ -495,6 +509,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ev.add_argument("--stats-out", default=None)
     ev.set_defaults(func=cmd_eval)
+
+    dash = sub.add_parser("dashboard", help="build a self-contained html dashboard")
+    dash.add_argument("--project", default=None)
+    dash.add_argument("--out", default="dashboard.html")
+    dash.set_defaults(func=cmd_dashboard)
 
     return parser
 

@@ -37,3 +37,4 @@ profiles.yml
 .DS_Store
 .venv-dbt/
 dbt/.user.yml
+dashboard.html
