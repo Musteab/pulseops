@@ -105,7 +105,20 @@ def check_sql(
     if not sql or not sql.strip():
         raise SqlGuardError("empty query")
 
+    # two versions from here on, and keeping them straight matters.
+    #
+    # `cleaned` has comments removed and string literals blanked, and exists
+    # only so the checks below cannot be fooled by a keyword hiding in a
+    # comment or a table name inside a quoted string. it is NOT runnable:
+    # blanking the literals changes what the query means.
+    #
+    # `original` is what actually gets executed. an earlier version of this
+    # function returned `cleaned` by mistake, so "where status = 'failed'" ran
+    # as "where status = ''" and every such query came back empty. it never
+    # errored, it just quietly answered the wrong question.
+    original = sql.strip().rstrip(";").strip()
     cleaned = _strip_noise(sql).strip().rstrip(";").strip()
+
     if not cleaned:
         raise SqlGuardError("query is only comments")
 
@@ -142,10 +155,10 @@ def check_sql(
             )
         tables.append(normalised)
 
-    guarded = cleaned
+    guarded = original
     limit_added = False
     if not _HAS_LIMIT.search(lowered):
-        guarded = f"{cleaned}\nlimit {max_limit}"
+        guarded = f"{original}\nlimit {max_limit}"
         limit_added = True
 
     return GuardResult(sql=guarded, tables=tuple(dict.fromkeys(tables)), limit_added=limit_added)

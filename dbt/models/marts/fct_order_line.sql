@@ -62,6 +62,9 @@ select
     lines.event_ts,
     lines.channel,
     lines.payment_status,
+    -- carried on the fact because "which payment method fails most" is a real
+    -- question and it has no dimension of its own worth building
+    lines.payment_method,
 
     lines.qty,
     lines.unit_price_myr,

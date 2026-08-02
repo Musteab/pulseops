@@ -161,6 +161,36 @@ def test_a_project_qualified_table_is_accepted():
     assert result.tables == (MART,)
 
 
+def test_string_literals_survive_the_guard():
+    """the guard must not change what the query means.
+
+    it blanks string literals internally so a keyword or table name hiding
+    inside quotes cannot fool the checks. an earlier version then returned that
+    blanked text as the approved query, so `where payment_status = 'failed'`
+    executed as `where payment_status = ''` and silently returned zero rows.
+    no error, no warning, just a confidently wrong answer.
+    """
+    sql = f"select count(*) from {MART} where payment_status = 'failed'"
+    result = check_sql(sql)
+    assert "'failed'" in result.sql
+
+
+def test_comments_may_be_stripped_but_logic_may_not():
+    sql = f"select channel from {MART} where channel = 'dine_in' -- only eat-in"
+    result = check_sql(sql)
+    assert "'dine_in'" in result.sql
+
+
+def test_multiple_literals_all_survive():
+    sql = (
+        f"select * from {MART} "
+        "where payment_status in ('failed', 'refunded') and channel = 'delivery'"
+    )
+    result = check_sql(sql)
+    for literal in ("'failed'", "'refunded'", "'delivery'"):
+        assert literal in result.sql
+
+
 # ---------------------------------------------------------------------------
 # bounding the result
 # ---------------------------------------------------------------------------

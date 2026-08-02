@@ -13,6 +13,7 @@ with orders as (
         channel,
         event_ts,
         payment_status,
+        payment_method,
         lines
     from {{ ref('stg_orders') }}
 
@@ -27,6 +28,7 @@ exploded as (
         orders.channel,
         orders.event_ts,
         orders.payment_status,
+        orders.payment_method,
 
         -- offset gives a stable position within the order, which combined with
         -- event_id forms the unique key for this grain

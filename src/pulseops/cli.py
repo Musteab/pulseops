@@ -277,6 +277,88 @@ def cmd_replay(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_ask(args: argparse.Namespace) -> int:
+    from .copilot.agent import Copilot
+
+    project = args.project or os.environ.get("GCP_PROJECT_ID")
+    if not project:
+        print("need --project or $GCP_PROJECT_ID", file=sys.stderr)
+        return 1
+
+    turn = Copilot(project_id=project, model=args.model).ask(args.question)
+
+    if turn.error:
+        print(f"error: {turn.error}", file=sys.stderr)
+        return 1
+
+    print(turn.answer)
+    if turn.tool_calls:
+        print(f"\ntools    {', '.join(turn.tool_calls)}")
+    if turn.sources:
+        print(f"sources  {', '.join(sorted(set(turn.sources)))}")
+    if turn.tools_refused:
+        print(f"refused  {', '.join(turn.tools_refused)}")
+    return 0
+
+
+def cmd_eval(args: argparse.Namespace) -> int:
+    from .copilot.agent import Copilot
+    from .copilot.evalset import CASES
+    from .copilot.evaluate import run_eval
+
+    project = args.project or os.environ.get("GCP_PROJECT_ID")
+    if not project:
+        print("need --project or $GCP_PROJECT_ID", file=sys.stderr)
+        return 1
+
+    cases = CASES
+    if args.category:
+        cases = tuple(c for c in CASES if c.category == args.category)
+    if not cases:
+        print(f"no cases in category {args.category!r}", file=sys.stderr)
+        return 1
+
+    print(f"running {len(cases)} cases against {args.model}\n")
+
+    card = run_eval(
+        lambda: Copilot(project_id=project, model=args.model),
+        cases,
+        workers=args.workers,
+        on_result=lambda r: print(f"  {'pass' if r.passed else 'FAIL'}  {r.case_id}"),
+    )
+
+    numbers = card.as_dict()
+    print()
+    print(f"passed           {numbers['passed']}/{numbers['total']}")
+    print(f"tool selection   {numbers['tool_selection_rate'] * 100:.0f}%")
+    print(f"answer accuracy  {numbers['answer_accuracy_rate'] * 100:.0f}%")
+    print()
+    for category, counts in numbers["by_category"].items():
+        print(f"  {category:<12} {counts['passed']}/{counts['total']}")
+
+    safety = numbers["safety"]
+    print()
+    print(f"safety           {safety['refused']}/{safety['cases']} refused")
+
+    for result in card.results:
+        if not result.passed:
+            print(f"\n  FAIL {result.case_id}")
+            for failure in result.failures:
+                print(f"       {failure}")
+
+    if args.stats_out:
+        out = Path(args.stats_out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(numbers, indent=2) + "\n", encoding="utf-8")
+        print(f"\nstats            {out}")
+
+    # an unsafe action fails the command regardless of the headline score
+    if card.unsafe_actions:
+        print("\nUNSAFE ACTION TAKEN, this is a hard failure", file=sys.stderr)
+        return 2
+    return 0 if card.passed == card.total else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pulseops", description="Synthetic restaurant data platform toolkit"
@@ -344,6 +426,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
     rep.add_argument("--stats-out", default=None)
     rep.set_defaults(func=cmd_replay)
+
+    ask = sub.add_parser("ask", help="put a question to the copilot")
+    ask.add_argument("question")
+    ask.add_argument("--project", default=None)
+    ask.add_argument("--model", default="gemini-2.5-pro")
+    ask.set_defaults(func=cmd_ask)
+
+    ev = sub.add_parser("eval", help="score the copilot against the eval cases")
+    ev.add_argument("--project", default=None)
+    ev.add_argument("--model", default="gemini-2.5-pro")
+    ev.add_argument(
+        "--category", default=None,
+        choices=["analytics", "reliability", "safety", "humility"],
+    )
+    ev.add_argument("--workers", type=int, default=4)
+    ev.add_argument("--stats-out", default=None)
+    ev.set_defaults(func=cmd_eval)
 
     return parser
 
