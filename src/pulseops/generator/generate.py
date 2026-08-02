@@ -89,7 +89,16 @@ def _pick_timestamp(rng: random.Random, start: date, end: date) -> datetime:
     day = start + timedelta(days=day_offset)
 
     # Weekends run about 35 percent heavier, modelled by resampling toward them.
-    if day.weekday() < 5 and rng.random() < 0.12:
+    #
+    # the roll is drawn before the weekday check rather than inside it, and that
+    # ordering is the whole point. written as `day.weekday() < 5 and rng.random()`
+    # python short-circuits, so no random number is drawn on a weekend, so the
+    # number of draws depends on which days the window happens to contain. same
+    # seed, different month, different data. it made `make demo` report 185
+    # faults one day and 193 the next, which quietly broke the one promise this
+    # whole project rests on.
+    shift_toward_weekend = rng.random() < 0.12
+    if day.weekday() < 5 and shift_toward_weekend:
         day += timedelta(days=(5 - day.weekday()))
         if day > end:
             day = end

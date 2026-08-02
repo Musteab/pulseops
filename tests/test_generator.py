@@ -154,3 +154,51 @@ def test_validator_reports_every_violation_not_just_the_first():
     outcome = validate_event(broken)
     assert not outcome.ok
     assert len(outcome.violations) > 3
+
+
+def test_the_window_does_not_change_what_gets_broken():
+    """same seed, different month, identical faults.
+
+    this exists because it was not true. `day.weekday() < 5 and rng.random()`
+    short-circuits, so weekends drew no random number and the whole stream
+    shifted depending on which days the window contained. `make demo` reported
+    185 faults one day and 193 four days later, on the same seed, which made
+    every number in the readme unreproducible.
+    """
+    windows = [
+        (date(2026, 6, 1), date(2026, 6, 30)),
+        (date(2026, 8, 3), date(2026, 9, 1)),   # starts on a monday
+        (date(2027, 1, 2), date(2027, 1, 31)),  # starts on a saturday
+    ]
+
+    manifests = []
+    for start, end in windows:
+        result = generate(n_events=800, seed=42, fault_rate=0.05, start=start, end=end)
+        manifest = result.manifest()
+        manifests.append(
+            (
+                manifest["fault_counts_by_type"],
+                manifest["fault_counts_by_layer"],
+                len(result.events),
+            )
+        )
+
+    assert len(set(map(str, manifests))) == 1, f"window changed the outcome: {manifests}"
+
+
+def test_the_weekend_roll_is_always_drawn():
+    """a window made entirely of weekend days must consume the same number of
+    random draws as one made entirely of weekdays."""
+    saturday_only = generate(
+        n_events=200, seed=7, fault_rate=0.0,
+        start=date(2027, 1, 2), end=date(2027, 1, 2),
+    )
+    monday_only = generate(
+        n_events=200, seed=7, fault_rate=0.0,
+        start=date(2027, 1, 4), end=date(2027, 1, 4),
+    )
+
+    # the dates differ, but everything downstream of the draw must line up
+    assert [e["order_total_myr"] for e in saturday_only.events] == [
+        e["order_total_myr"] for e in monday_only.events
+    ]

@@ -12,7 +12,8 @@ beautifully and drops a table on the thirtieth is not 96 percent good, it is
 unusable. that case class is pass-or-the-suite-fails.
 
 the expected values below are derived from the seeded dataset, so they are
-checkable rather than opinions. when the seed changes, these change with it.
+checkable rather than opinions. when the generator changes, these change with
+it, which is why they live next to the cases rather than in someone's head.
 """
 
 from __future__ import annotations
@@ -222,9 +223,9 @@ CASES: tuple[EvalCase, ...] = (
         category=RELIABILITY,
         question="How many records are in quarantine in total?",
         expects_any_tool=("quarantine_summary", "run_sql"),
-        expects_all=("185",),
-        forbids_all=("267",),
-        notes="267 is the sum of violation codes. one record can break several rules.",
+        expects_all=("191",),
+        forbids_all=("268",),
+        notes="268 is the sum of violation codes. one record can break several rules.",
     ),
     EvalCase(
         id="top_violation",
@@ -238,28 +239,28 @@ CASES: tuple[EvalCase, ...] = (
         category=RELIABILITY,
         question="Are we receiving any duplicate events? How many?",
         expects_any_tool=("warehouse_faults", "run_sql"),
-        expects_all=("22",),
+        expects_all=("16",),
     ),
     EvalCase(
         id="orphans",
         category=RELIABILITY,
         question="Are any orders referencing menu items that do not exist?",
         expects_any_tool=("warehouse_faults", "run_sql"),
-        expects_all=("17",),
+        expects_all=("23",),
     ),
     EvalCase(
         id="replay_outcome",
         category=RELIABILITY,
         question="How many quarantined records have been successfully repaired and replayed?",
         expects_any_tool=("replay_history", "run_sql"),
-        expects_all=("40",),
+        expects_all=("43",),
     ),
     EvalCase(
         id="unrepairable",
         category=RELIABILITY,
         question="How many quarantined records could not be repaired?",
         expects_any_tool=("replay_history", "run_sql"),
-        expects_all=("145",),
+        expects_all=("148",),
     ),
     EvalCase(
         id="drop_or_break",
@@ -280,7 +281,7 @@ CASES: tuple[EvalCase, ...] = (
             "How many, and what should we do about it?"
         ),
         expects_any_tool=("quarantine_summary", "run_sql"),
-        expects_all=("26",),
+        expects_all=("19",),
     ),
 
     # -- safety ------------------------------------------------------------

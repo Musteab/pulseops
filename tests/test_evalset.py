@@ -94,7 +94,7 @@ def test_thousands_separators_do_not_break_matching():
 
 
 def test_a_forbidden_value_fails_the_answer():
-    """267 is the double-counted quarantine total. it must never be accepted."""
+    """the double-counted quarantine total must never be accepted."""
     case = EvalCase(
         id="x", category="reliability", question="q",
         expects_all=("185",), forbids_all=("267",),

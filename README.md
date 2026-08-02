@@ -23,52 +23,52 @@ $ make demo
 
 run_id           run-42-5000
 seed             42
-window           2026-06-30 to 2026-07-29
-events written   5022
-faults injected  250  {'contract': 185, 'warehouse': 65}
+window           2026-07-04 to 2026-08-02
+events written   5016
+faults injected  250  {'contract': 191, 'warehouse': 59}
 
 contract version 1.0.0
-events read      5022
-passed           4837
-quarantined      185
+events read      5016
+passed           4825
+quarantined      191
 
 ground truth     250 faults injected
-contract layer   185/185 caught  (100.0%)
-warehouse layer  65 deferred to dbt tests
+contract layer   191/191 caught  (100.0%)
+warehouse layer  59 deferred to dbt tests
 ```
 
 That last split is the honest part. The ingest-time contract cannot catch a duplicate delivery or an orphaned foreign key, because neither is visible from a single record. Those are tagged `warehouse` and handed to the dbt test layer instead of being quietly counted as a win.
 
 ## The same run, on real infrastructure
 
-The offline numbers above are not a simulation of the cloud path, they are the same code. Publishing all 5022 events through Pub/Sub and draining them into BigQuery reproduces them exactly:
+The offline numbers above are not a simulation of the cloud path, they are the same code. Publishing all 5016 events through Pub/Sub and draining them into BigQuery reproduces them exactly:
 
 | | Offline | Through Pub/Sub into BigQuery |
 |---|---|---|
-| Events | 5022 | 5022 published, 0 failed |
-| Passed the contract | 4837 | 4837 rows in `pulseops_raw.orders_raw` |
-| Quarantined | 185 | 185 rows in `pulseops_quarantine.orders_quarantine` |
-| p95 publish latency | n/a | 67 ms |
+| Events | 5016 | 5016 published, 0 failed |
+| Passed the contract | 4825 | 4825 rows in `pulseops_raw.orders_raw` |
+| Quarantined | 191 | 191 rows in `pulseops_quarantine.orders_quarantine` |
+| p95 publish latency | n/a | 63 ms |
 
-Raw holds 4837 rows but only 4815 distinct `event_id` values. That gap of 22 is not a defect, it is the 22 injected `duplicate_event` faults sitting exactly where the design says they should: Pub/Sub delivers at least once, a single record cannot reveal that it is a replay, and deduplication is therefore the warehouse layer's job. The manifest injected 22 duplicates and BigQuery contains 22 extra rows.
+Raw holds 4825 rows but only 4809 distinct `event_id` values. That gap of 16 is not a defect, it is the 16 injected `duplicate_event` faults sitting exactly where the design says they should: Pub/Sub delivers at least once, a single record cannot reveal that it is a replay, and deduplication is therefore the warehouse layer's job. The manifest injected 16 duplicates and BigQuery contains 16 extra rows.
 
 ## Closing the loop: the warehouse layer
 
-The contract reports 185/185 and then hands over the three fault classes it structurally cannot see. `dq_warehouse_faults` reports what happened to them:
+The contract reports 191/191 and then hands over the three fault classes it structurally cannot see. `dq_warehouse_faults` reports what happened to them:
 
 | Fault | Found | Injected | Why ingest could not see it |
 |---|---|---|---|
-| `duplicate_event` | 22 | 22 | Needs the other records |
-| `late_arrival` | 26 | 26 | Needs to know when the window closed |
-| `orphan_menu_item` | 17 | 17 | Needs the menu |
+| `duplicate_event` | 16 | 16 | Needs the other records |
+| `late_arrival` | 20 | 20 | Needs to know when the window closed |
+| `orphan_menu_item` | 23 | 23 | Needs the menu |
 
-185 at ingest plus 65 in the warehouse equals the 250 faults injected. Every one is accounted for, and neither number is asserted: both are counted against the same manifest.
+191 at ingest plus 59 in the warehouse equals the 250 faults injected. Every one is accounted for, and neither number is asserted: both are counted against the same manifest.
 
 Three decisions in that layer are worth naming:
 
-**Orphans get an unknown member, not a null and not a delete.** Seventeen order lines reference a menu item that never existed. Dropping them makes revenue quietly wrong; leaving a null key means the fact table can no longer promise a valid join. Instead they attach to a single sentinel row in `dim_menu_item`, so the rows survive, the joins hold, and the damage is countable.
+**Orphans get an unknown member, not a null and not a delete.** Twenty-three order lines reference a menu item that never existed. Dropping them makes revenue quietly wrong; leaving a null key means the fact table can no longer promise a valid join. Instead they attach to a single sentinel row in `dim_menu_item`, so the rows survive, the joins hold, and the damage is countable.
 
-**`relationships` would not have caught them.** dbt's relationships test skips nulls, so it passed while 17 rows had no menu item at all. `not_null` on the foreign key is what actually caught it. Worth knowing before you trust a green test run.
+**`relationships` would not have caught them.** dbt's relationships test skips nulls, so it passed while every one of those rows had no menu item at all. `not_null` on the foreign key is what actually caught it. Worth knowing before you trust a green test run.
 
 ## Replay: repairing what can be repaired
 
@@ -77,22 +77,22 @@ Quarantine is only worth keeping if something can come back out of it. `pulseops
 ```
 $ pulseops replay --store bq://YOUR-PROJECT
 
-attempted        185
-  repaired        40
-  unrepairable   145
+attempted        191
+  repaired        43
+  unrepairable   148
 
 repairs applied:
-     26  v2_total_rename
-     14  locale_timestamp
+     24  locale_timestamp
+     19  v2_total_rename
 ```
 
-Rebuilding the warehouse afterwards moves captured revenue from **RM 212,901.30 to RM 214,697.50** across 40 recovered orders. That is the schema-drift demo closing: the money was never lost, it was sitting in quarantine under a different field name, and the repair brought it back.
+Rebuilding the warehouse afterwards moves captured revenue from **RM 215,595.30 to RM 217,730.40** across 43 recovered orders. That is the schema-drift demo closing: the money was never lost, it was sitting in quarantine under a different field name, and the repair brought it back.
 
-**The 145 refusals are the point, not a shortfall.** A record whose total was renamed is recoverable, because the number is still there under another key. A record with no `outlet_id` is not, because nothing tells you which restaurant took the order. Every repair in `replay.py` is a pure rename or reformat of data that is already present, and seven tests exist specifically to fail if any of them ever starts inventing a value. Fabricating data to turn a dashboard green is worse than leaving it red.
+**The 148 refusals are the point, not a shortfall.** A record whose total was renamed is recoverable, because the number is still there under another key. A record with no `outlet_id` is not, because nothing tells you which restaurant took the order. Every repair in `replay.py` is a pure rename or reformat of data that is already present, and seven tests exist specifically to fail if any of them ever starts inventing a value. Fabricating data to turn a dashboard green is worse than leaving it red.
 
 **Rerunning is safe.** Attempts are recorded in an append-only `replay_log` and anti-joined on the next run, so a second `replay` reports `attempted 0` and revenue does not move. The log is a separate table rather than a flag on the quarantine row for a specific reason: BigQuery refuses to `UPDATE` rows still in the streaming buffer, which would be exactly the records most recently quarantined.
 
-**Lateness is measured from the producer's clock, not ours.** The row's `ingest_ts` records when this pipeline stored it, which during a replay of historical data is simply "whenever the drain ran". Computing lag from it flagged all 4815 orders as late. The signal lives in the timestamp the source system stamped, which travels inside the payload. The manifest is what exposed the mistake.
+**Lateness is measured from the producer's clock, not ours.** The row's `ingest_ts` records when this pipeline stored it, which during a replay of historical data is simply "whenever the drain ran". Computing lag from it flagged every order in the warehouse as late. The signal lives in the timestamp the source system stamped, which travels inside the payload. The manifest is what exposed the mistake.
 
 ## Quickstart
 
@@ -234,8 +234,8 @@ The pipeline is partly at fault. Overall revenue is not down, but a steady strea
 of records are being quarantined for contract violations.
 
 - pulseops_mart.fct_order_line: revenue and order counts are broadly stable.
-- pulseops_quarantine.orders_quarantine: 185 records quarantined, most commonly
-  line_total_mismatch (56).
+- pulseops_quarantine.orders_quarantine: 191 records quarantined, most commonly
+  line_total_mismatch (58).
 
 tools    quarantine_summary, revenue_by_outlet
 sources  pulseops_mart.fct_order_line, pulseops_quarantine.orders_quarantine
@@ -276,7 +276,7 @@ It paid for itself immediately, and three of the four bugs were in the platform 
 
 | Found | What it actually was |
 |---|---|
-| Copilot reported 267 quarantined records | `quarantine_summary` labelled its count `records`. One record can break several rules, so the model summed violation codes. 185 is the real number. Renaming the column fixed it. |
+| Copilot overstated the quarantined record count | `quarantine_summary` labelled its count `records`. One record can break several rules, so the model summed violation codes and reported a total that never happened. Renaming the columns to `violation_occurrences` and `records_affected` fixed it without touching the prompt. |
 | Queries filtering on a string returned nothing | The guard blanks string literals internally so keywords cannot hide in quotes, then returned that blanked text as the approved query. `where payment_status = 'failed'` ran as `where payment_status = ''`. No error, just a confidently wrong answer. |
 | Copilot could not answer a payment question | It was right. `fct_order_line` carried `payment_status` but not `payment_method`. The eval found a missing column in the dimensional model. |
 | Copilot queried a table called `fact_orders` | It had never been given a schema, so it invented one. A schema note now ships in the system prompt, and a test asserts it describes exactly the guard's allowlist and nothing else. |
