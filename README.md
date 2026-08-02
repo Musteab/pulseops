@@ -4,7 +4,9 @@
 
 Revenue for one outlet drops 40 percent overnight. Did sales actually fall, or did the pipeline break? PulseOps is built to answer that question, and to prove the answer with numbers rather than vibes.
 
-It is a synthetic restaurant order platform with a three-layer BigQuery warehouse, contract-enforced ingestion, deliberate fault injection, and (in progress) an agentic copilot that investigates anomalies with read-only tools.
+It is a synthetic restaurant order platform with a three-layer BigQuery warehouse, contract-enforced ingestion, deliberate fault injection, and a Gemini copilot that investigates anomalies through read-only, allowlisted tools.
+
+Everything below is measured against a ground-truth manifest and reproducible from a fixed seed. Where a number varies between runs, the spread is reported rather than the best result.
 
 [![ci](https://github.com/Musteab/pulseops/actions/workflows/ci.yml/badge.svg)](https://github.com/Musteab/pulseops/actions/workflows/ci.yml)
 
@@ -221,6 +223,66 @@ cd dbt && cp profiles.yml.example profiles.yml   # set project
 
 `dbt build` runs the seeds, models and all 59 tests in dependency order. Authentication is `oauth`, so it reuses `gcloud auth application-default login` and there is no service-account key anywhere in the project.
 
+## The copilot
+
+The whole platform exists to answer one question, so there is an agent that answers it:
+
+```
+$ pulseops ask "Revenue looks lower than I expected. Did sales drop, or is the pipeline broken?"
+
+The pipeline is partly at fault. Overall revenue is not down, but a steady stream
+of records are being quarantined for contract violations.
+
+- pulseops_mart.fct_order_line: revenue and order counts are broadly stable.
+- pulseops_quarantine.orders_quarantine: 185 records quarantined, most commonly
+  line_total_mismatch (56).
+
+tools    quarantine_summary, revenue_by_outlet
+sources  pulseops_mart.fct_order_line, pulseops_quarantine.orders_quarantine
+```
+
+Gemini 2.5 Pro on Vertex AI, five read-only tools, and every answer carries the tables it came from. An unsourced answer from an agent is not usable during an incident.
+
+### The guard is the point, not the model
+
+The model picks tools and writes prose. Everything that could actually harm the warehouse is decided in `copilot/guard.py`, which the model cannot argue with: a refused call comes back as an ordinary tool result, and there is no path to escalate.
+
+It enforces one statement, `SELECT` or `WITH` only, no scripting or procedures, every table on an allowlist that excludes `raw` and `staging` entirely, and a bounded result. There are 33 adversarial tests, written as attacks rather than as unit tests.
+
+**The honest part: this guard is the second line of defence, not the first.** The first is IAM. The copilot is meant to run as a service account with `roles/bigquery.dataViewer` and nothing else, so that a perfect bypass of the regex still cannot write a row. A regex is not a SQL parser. The guard exists because it fails loudly and specifically at the moment the model asks for something it should not, which is an auditable refusal rather than a confusing permission error three layers down.
+
+### Evaluation
+
+Twenty cases across four categories, scored against expected values derived from the seeded dataset:
+
+- **analytics** can it answer an ordinary business question
+- **reliability** can it tell a data fault from a business change
+- **safety** does it refuse to write, delete, replay, or read outside the allowlist
+- **humility** does it say "I don't know" instead of inventing a customer name or forecasting next month
+
+Tool selection and answer accuracy are scored separately, because the right number from the wrong table is a different failure from the wrong number, and averaging them hides which one happened.
+
+**Safety is not scored on a curve.** An agent that answers nineteen questions beautifully and drops a table on the twentieth is not 95 percent good, it is unusable, so any unsafe action fails the command outright with a distinct exit code.
+
+```bash
+pulseops eval --project YOUR-PROJECT --repeat 5
+```
+
+`--repeat` exists because a single run of an LLM eval is an anecdote. Three consecutive runs of this suite scored 20/20, 18/20 and 17/20 on identical code and identical data, and quoting the best of those would have been a lie by selection. The command reports the spread and a per-case flake rate.
+
+### What the eval found
+
+It paid for itself immediately, and three of the four bugs were in the platform rather than the model:
+
+| Found | What it actually was |
+|---|---|
+| Copilot reported 267 quarantined records | `quarantine_summary` labelled its count `records`. One record can break several rules, so the model summed violation codes. 185 is the real number. Renaming the column fixed it. |
+| Queries filtering on a string returned nothing | The guard blanks string literals internally so keywords cannot hide in quotes, then returned that blanked text as the approved query. `where payment_status = 'failed'` ran as `where payment_status = ''`. No error, just a confidently wrong answer. |
+| Copilot could not answer a payment question | It was right. `fct_order_line` carried `payment_status` but not `payment_method`. The eval found a missing column in the dimensional model. |
+| Copilot queried a table called `fact_orders` | It had never been given a schema, so it invented one. A schema note now ships in the system prompt, and a test asserts it describes exactly the guard's allowlist and nothing else. |
+
+**The scorer was wrong too.** The first refusal detector was a list of literal phrases, and it marked *"I cannot run queries against raw tables"* as a non-refusal because that wording was not on the list. A brittle judge invents failures, and with different luck it invents passes. It is now a pattern with an explicit carve-out for "I cannot *find* any duplicates", which is a statement about data rather than a refusal to act, and there are 11 tests on the scorer itself using refusal strings the model actually produced.
+
 ## Status
 
 Built and tested:
@@ -237,12 +299,13 @@ Built and tested:
 - [x] Quarantine replay that repairs format, refuses to invent values, and cannot double count
 - [x] 84 python tests, lint, and a CI job that enforces the headline number
 
+- [x] Data-reliability copilot on Gemini with allowlisted read-only tools
+- [x] 33 adversarial tests on the SQL guard, and a 20-case agent evaluation suite
+
 Roadmap, in build order:
 
 - [ ] Airflow DAG for the batch and API sources
 - [ ] Looker Studio dashboard for revenue and pipeline health
-- [ ] Data-reliability copilot with allowlisted read-only tools
-- [ ] Agent evaluation suite scoring tool selection, answer accuracy, and refusal of unsafe writes
 
 Nothing is claimed here that is not in the repo. Items above the line run today; items below it do not exist yet.
 
@@ -260,7 +323,13 @@ src/pulseops/
     publish.py          the publisher, with per-message latency percentiles
     subscribe.py        pull, enforce the contract, route
     stores.py           where rows land, file or BigQuery
-  cli.py                generate, validate, publish, subscribe
+  copilot/
+    guard.py            the sql guard, 33 adversarial tests against it
+    tools.py            five read-only tools that report their sources
+    agent.py            gemini, bounded to those tools
+    evalset.py          20 cases and what counts as passing each
+    evaluate.py         the runner, with repeat and spread reporting
+  cli.py                generate, validate, publish, subscribe, replay, ask, eval
 infra/                  Terraform for topics, subscriptions, datasets, tables
 dbt/
   models/staging/       dedupe, unpack the JSON, type it
