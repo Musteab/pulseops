@@ -134,17 +134,31 @@ class CopilotTools:
     # input cannot be prompt-injected into reading something it should not.
 
     def quarantine_summary(self, days: int = 30) -> ToolResult:
-        """what has been rejected recently, and why."""
+        """what has been rejected recently, and why.
+
+        the two counts are deliberately named apart. one record can break
+        several rules at once, so the violation counts sum to more than the
+        number of records and a column called "records" invites anyone reading
+        it, human or model, to add them up and report a total that never
+        happened. records_affected is the honest denominator.
+        """
         return self.run_sql(
             f"""
             select
                 code as violation_code,
-                count(*) as records
+                count(*) as violation_occurrences,
+                count(distinct message_id) as records_affected,
+                (
+                    select count(distinct message_id)
+                    from `{self.project_id}.pulseops_quarantine.orders_quarantine`
+                    where quarantined_ts
+                        >= timestamp_sub(current_timestamp(), interval {int(days)} day)
+                ) as total_quarantined_records
             from `{self.project_id}.pulseops_quarantine.orders_quarantine`,
             unnest(violation_codes) as code
             where quarantined_ts >= timestamp_sub(current_timestamp(), interval {int(days)} day)
             group by 1
-            order by records desc
+            order by violation_occurrences desc
             """
         )
 
