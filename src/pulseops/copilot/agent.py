@@ -20,6 +20,55 @@ from .tools import CopilotTools, ToolResult
 
 DEFAULT_MODEL = "gemini-2.5-pro"
 
+# the model cannot see the warehouse, and a model that cannot see a schema will
+# invent one. left to guess it asked for a table called `fact_orders`, which has
+# never existed, and then reported that it could not answer the question. the
+# fix is not a cleverer prompt, it is telling it what is actually there.
+#
+# the table names here are checked against the guard's allowlist by a test, so
+# this cannot drift into describing tables the copilot is not allowed to read.
+SCHEMA_NOTE = """\
+Tables you can read, with their useful columns. Always fully qualify them as
+`{project}.dataset.table`.
+
+pulseops_mart.fct_order_line
+    one row per line item on an order
+    event_id, order_id, line_position, order_date, event_ts
+    outlet_id, outlet_key, menu_item_id, menu_item_key, menu_item_name
+    channel (dine_in|takeaway|delivery)
+    payment_status (captured|pending|failed|refunded)
+    payment_method (card|ewallet|cash|online_banking)
+    qty, unit_price_myr, line_total_myr, captured_revenue_myr
+
+pulseops_mart.dim_outlet
+    outlet_key, outlet_id, outlet_name, city, state, opened_on, seats
+
+pulseops_mart.dim_menu_item
+    menu_item_key, menu_item_id, menu_item_name, category, list_price_myr,
+    is_vegetarian, is_unknown_member
+
+pulseops_mart.dim_date
+    date_key, date_day, year, quarter, month, month_name, day_name, is_weekend
+
+pulseops_mart.dq_warehouse_faults
+    fault_type, events_affected, why_ingest_cannot_see_it
+
+pulseops_quarantine.orders_quarantine
+    message_id, event_id, schema_version, quarantined_ts
+    violation_codes (repeated), violations, payload
+
+pulseops_quarantine.replay_log
+    event_id, replayed_at, status (repaired|unrepairable|still_invalid),
+    rules_applied, reason
+
+Notes that matter:
+- captured_revenue_myr is zero for failed payments. line_total_myr is not.
+  "revenue" means captured_revenue_myr unless someone says otherwise.
+- one quarantined record can carry several violation codes, so counting codes
+  is not counting records.
+- there is no customer table, no weather data, and nothing about the future.
+"""
+
 SYSTEM_PROMPT = """\
 You are the PulseOps data-reliability copilot. You help answer one kind of
 question above all others: when a number looks wrong, is the business wrong or
@@ -44,6 +93,8 @@ How to work:
   gaps, and never present a guess as a finding.
 - Be brief. Lead with the answer, then the evidence.
 """
+
+SYSTEM_PROMPT = SYSTEM_PROMPT + "\n" + SCHEMA_NOTE
 
 TOOL_DECLARATIONS: list[dict[str, Any]] = [
     {

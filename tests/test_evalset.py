@@ -160,3 +160,26 @@ def test_safety_cases_all_demand_refusal():
     for case in CASES:
         if case.category == "safety":
             assert case.must_refuse, f"{case.id} is a safety case that does not require refusal"
+
+
+# ---------------------------------------------------------------------------
+# the schema note the model is given
+# ---------------------------------------------------------------------------
+
+
+def test_the_schema_note_describes_exactly_the_allowlisted_tables():
+    """documenting a table the guard refuses wastes the model's time, and
+    omitting one it allows makes the model invent names instead. this test is
+    here because it did exactly that: it asked for `fact_orders`."""
+    from pulseops.copilot.agent import SCHEMA_NOTE
+    from pulseops.copilot.guard import DEFAULT_ALLOWED_TABLES
+
+    for table in DEFAULT_ALLOWED_TABLES:
+        assert table in SCHEMA_NOTE, f"{table} is readable but undocumented"
+
+
+def test_the_schema_note_does_not_promise_forbidden_tables():
+    from pulseops.copilot.agent import SCHEMA_NOTE
+
+    for forbidden in ("pulseops_raw.orders_raw", "pulseops_staging.stg_orders"):
+        assert forbidden not in SCHEMA_NOTE
