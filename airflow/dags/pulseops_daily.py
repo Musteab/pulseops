@@ -98,17 +98,37 @@ def pulseops_daily():
 
         result = subprocess.run(
             [
-                "/opt/airflow/dbt-venv/bin/dbt", "build",
+                "dbt", "build",
                 "--project-dir", "/opt/airflow/pulseops/dbt",
                 "--profiles-dir", "/opt/airflow/pulseops/dbt",
+                # the repo is mounted read-only, so dbt cannot write its
+                # artifacts next to the models the way it does locally.
+                #
+                # these go straight under /tmp rather than into a named docker
+                # volume. a volume is created root-owned, airflow runs as uid
+                # 50000, and dbt then dies before it can initialise logging: no
+                # stdout, no stderr, exit 2, nothing in any log file. /tmp is
+                # world-writable so dbt just creates what it needs.
+                "--target-path", "/tmp/dbt-target",
+                "--log-path", "/tmp/dbt-logs",
             ],
             capture_output=True,
             text=True,
             check=False,
         )
         print(result.stdout[-4000:])
+
         if result.returncode != 0:
-            raise RuntimeError(f"dbt build failed:\n{result.stderr[-2000:]}")
+            # both streams and the code. an earlier version raised with stderr
+            # alone, dbt had written nothing to it, and the failure read as
+            # "dbt build failed:" with no reason attached. an error message that
+            # omits the error is worse than no error message, because it sends
+            # you looking in the wrong place.
+            raise RuntimeError(
+                f"dbt build exited {result.returncode}\n"
+                f"stdout:\n{result.stdout[-2000:] or '(empty)'}\n"
+                f"stderr:\n{result.stderr[-2000:] or '(empty)'}"
+            )
         return "marts rebuilt"
 
     rebuild_marts(load_inventory_snapshot(), load_weather_readings())

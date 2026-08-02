@@ -21,6 +21,9 @@ x-airflow-common: &airflow-common
     # mounted read-only from the host rather than baked into the image
     GOOGLE_APPLICATION_CREDENTIALS: /opt/airflow/gcloud/application_default_credentials.json
     PYTHONPATH: /opt/airflow/pulseops/src
+    # installed at container start. a pip install inside airflow-init would
+    # only live in that container and the scheduler would still be missing it.
+    _PIP_ADDITIONAL_REQUIREMENTS: google-cloud-bigquery>=3.25 dbt-bigquery>=1.9
   volumes:
     - ./dags:/opt/airflow/dags
     - ..:/opt/airflow/pulseops:ro
@@ -53,7 +56,6 @@ services:
         airflow db migrate
         airflow users create --username admin --password admin \
           --firstname pulse --lastname ops --role Admin --email admin@example.com || true
-        pip install --quiet google-cloud-bigquery google-cloud-pubsub
     restart: on-failure
 
   scheduler:
