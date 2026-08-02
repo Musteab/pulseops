@@ -251,7 +251,13 @@ Cloud Composer bills roughly $300 a month whether a DAG fires or not, because it
 cd airflow && docker compose up      # http://localhost:8080, admin / admin
 ```
 
-Every task is a thin wrapper over a function in `sources/`, so the logic is unit tested without an Airflow install and the DAG owns only scheduling, retries and dependencies.
+Every task is a thin wrapper over a function in `sources/`, so the logic is unit tested without an Airflow install and the DAG owns only scheduling, retries and dependencies. A verified run completes in about 47 seconds: the two loads run in parallel, then dbt rebuilds all 65 nodes.
+
+Two things that only surfaced by actually running it, both worth keeping:
+
+**dbt needs a writable path, and a Docker named volume is not one.** The repo is mounted read-only, so dbt was pointed at a named volume for its target and log directories. Named volumes are created root-owned, Airflow runs as uid 50000, and dbt died before it could initialise logging. Exit code 2, empty stdout, empty stderr, no log file, nothing. Writing under `/tmp` instead fixed it, because `/tmp` is world-writable and dbt creates what it needs.
+
+**The task was hiding the reason.** It raised with `stderr` alone, dbt had written nothing to it, and the failure read as `dbt build failed:` with no cause attached. It now includes the return code and both streams. An error message that omits the error is worse than none, because it sends you looking in the wrong place.
 
 ### What the join buys you
 
