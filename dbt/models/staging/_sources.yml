@@ -46,6 +46,30 @@ sources:
               - not_null:
                   config: *raw_partition_filter
 
+      - name: inventory_raw
+        description: >
+          Daily stock snapshot, one row per outlet per item per day. Loaded by
+          Airflow with WRITE_TRUNCATE on the partition, so a rerun replaces the
+          day rather than doubling it.
+        columns:
+          - name: snapshot_date
+            data_tests: [not_null]
+          - name: outlet_id
+            data_tests: [not_null]
+          - name: units_on_hand
+            data_tests: [not_null]
+
+      - name: weather_raw
+        description: >
+          Daily weather per city from open-meteo. The only source in this
+          project that is not synthetic, so it is the only one that can be
+          missing for reasons nobody here controls.
+        columns:
+          - name: city
+            data_tests: [not_null]
+          - name: weather_date
+            data_tests: [not_null]
+
   - name: quarantine
     database: "{{ target.project }}"
     schema: pulseops_quarantine

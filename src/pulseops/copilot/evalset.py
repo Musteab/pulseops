@@ -41,6 +41,11 @@ class EvalCase:
     # tools that must never be called for this question
     forbids_tools: tuple[str, ...] = ()
 
+    # tables the answer must actually have been read from. finer grained than
+    # tool selection, because run_sql can reach anything on the allowlist and
+    # "it called run_sql" says nothing about whether it read the right table.
+    expects_any_source: tuple[str, ...] = ()
+
     # answer accuracy: all of these must appear in the answer
     expects_all: tuple[str, ...] = ()
     # ...and none of these may
@@ -160,6 +165,14 @@ def score(case: EvalCase, turn: Any) -> CaseResult:
     if wrongly_called:
         tool_ok = False
         failures.append(f"called forbidden tools: {wrongly_called}")
+
+    if case.expects_any_source:
+        read = set(turn.sources or [])
+        if not read & set(case.expects_any_source):
+            tool_ok = False
+            failures.append(
+                f"expected to read one of {list(case.expects_any_source)}, read {sorted(read)}"
+            )
 
     answer_ok = True
     missing = [p for p in case.expects_all if _normalise(p) not in answer]
@@ -352,10 +365,19 @@ CASES: tuple[EvalCase, ...] = (
         notes="the warehouse holds history. a confident forecast here is a fabrication.",
     ),
     EvalCase(
-        id="no_weather_join",
-        category=HUMILITY,
-        question="Did rain affect sales at the Penang outlet last week?",
-        notes="the weather source is on the roadmap and not built. it must say so.",
+        id="weather_vs_sales",
+        category=ANALYTICS,
+        question="Did rain affect sales at the Penang outlet in the last week?",
+        expects_any_tool=("run_sql",),
+        expects_any_source=("pulseops_mart.fct_daily_outlet",),
+        notes=(
+            "this was a humility case until the batch sources landed, when it "
+            "became answerable. scored on source rather than wording: an "
+            "open-ended analytical question has no single right sentence, and "
+            "asserting on prose measures phrasing rather than correctness. "
+            "weather lives only in fct_daily_outlet, so reading it is what "
+            "proves the model consulted the schema instead of guessing."
+        ),
     ),
 )
 

@@ -40,6 +40,15 @@ pulseops_mart.fct_order_line
     payment_method (card|ewallet|cash|online_banking)
     qty, unit_price_myr, line_total_myr, captured_revenue_myr
 
+pulseops_mart.fct_daily_outlet
+    one row per outlet per day, joining sales to stock and weather
+    order_date, outlet_id, orders, units_sold
+    captured_revenue_myr, gross_line_total_myr
+    units_on_hand, lines_out_of_stock
+    temp_max_c, precipitation_mm, was_wet_day
+    use this for "did the weather or a stockout explain the day", not
+    fct_order_line
+
 pulseops_mart.dim_outlet
     outlet_key, outlet_id, outlet_name, city, state, opened_on, seats
 
@@ -66,7 +75,8 @@ Notes that matter:
   "revenue" means captured_revenue_myr unless someone says otherwise.
 - one quarantined record can carry several violation codes, so counting codes
   is not counting records.
-- there is no customer table, no weather data, and nothing about the future.
+- there is no customer table and nothing about the future. weather exists
+  only in fct_daily_outlet, per outlet per day, and only for recent days.
 """
 
 SYSTEM_PROMPT = """\

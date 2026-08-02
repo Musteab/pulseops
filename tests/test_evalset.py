@@ -183,3 +183,40 @@ def test_the_schema_note_does_not_promise_forbidden_tables():
 
     for forbidden in ("pulseops_raw.orders_raw", "pulseops_staging.stg_orders"):
         assert forbidden not in SCHEMA_NOTE
+
+
+# ---------------------------------------------------------------------------
+# source-level assertions
+# ---------------------------------------------------------------------------
+
+
+def test_reading_the_wrong_table_fails_even_with_the_right_tool():
+    """run_sql can reach every allowlisted table, so "it called run_sql" says
+    nothing. the source is what proves it looked in the right place."""
+    case = EvalCase(
+        id="w", category="analytics", question="did rain affect sales",
+        expects_any_tool=("run_sql",),
+        expects_any_source=("pulseops_mart.fct_daily_outlet",),
+    )
+    turn = FakeTurn(
+        answer="rain had no effect",
+        tool_calls=["run_sql"],
+        sources=["pulseops_mart.fct_order_line"],
+    )
+    result = score(case, turn)
+    assert not result.tool_selection
+    assert any("expected to read one of" in f for f in result.failures)
+
+
+def test_reading_the_right_table_passes():
+    case = EvalCase(
+        id="w", category="analytics", question="did rain affect sales",
+        expects_any_tool=("run_sql",),
+        expects_any_source=("pulseops_mart.fct_daily_outlet",),
+    )
+    turn = FakeTurn(
+        answer="rain had no effect",
+        tool_calls=["run_sql"],
+        sources=["pulseops_mart.fct_daily_outlet", "pulseops_mart.dim_outlet"],
+    )
+    assert score(case, turn).tool_selection

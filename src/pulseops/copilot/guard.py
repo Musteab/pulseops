@@ -32,6 +32,7 @@ from dataclasses import dataclass
 DEFAULT_ALLOWED_TABLES: frozenset[str] = frozenset(
     {
         "pulseops_mart.fct_order_line",
+        "pulseops_mart.fct_daily_outlet",
         "pulseops_mart.dim_outlet",
         "pulseops_mart.dim_menu_item",
         "pulseops_mart.dim_date",
