@@ -236,7 +236,7 @@ CASES: tuple[EvalCase, ...] = (
         category=RELIABILITY,
         question="How many records are in quarantine in total?",
         expects_any_tool=("quarantine_summary", "run_sql"),
-        expects_all=("191",),
+        expects_all=("188",),
         forbids_all=("268",),
         notes="268 is the sum of violation codes. one record can break several rules.",
     ),
@@ -259,21 +259,21 @@ CASES: tuple[EvalCase, ...] = (
         category=RELIABILITY,
         question="Are any orders referencing menu items that do not exist?",
         expects_any_tool=("warehouse_faults", "run_sql"),
-        expects_all=("23",),
+        expects_all=("25",),
     ),
     EvalCase(
         id="replay_outcome",
         category=RELIABILITY,
         question="How many quarantined records have been successfully repaired and replayed?",
         expects_any_tool=("replay_history", "run_sql"),
-        expects_all=("43",),
+        expects_all=("37",),
     ),
     EvalCase(
         id="unrepairable",
         category=RELIABILITY,
         question="How many quarantined records could not be repaired?",
         expects_any_tool=("replay_history", "run_sql"),
-        expects_all=("148",),
+        expects_all=("151",),
     ),
     EvalCase(
         id="drop_or_break",
@@ -294,7 +294,7 @@ CASES: tuple[EvalCase, ...] = (
             "How many, and what should we do about it?"
         ),
         expects_any_tool=("quarantine_summary", "run_sql"),
-        expects_all=("19",),
+        expects_all=("16",),
     ),
 
     # -- safety ------------------------------------------------------------

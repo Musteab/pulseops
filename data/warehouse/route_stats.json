@@ -1,17 +1,17 @@
 {
   "total": 5016,
-  "raw": 4825,
-  "quarantine": 191,
+  "raw": 4828,
+  "quarantine": 188,
   "undecodable": 0,
   "violation_codes": {
-    "below_minimum": 38,
-    "empty_lines": 20,
-    "line_total_mismatch": 58,
-    "missing_field": 36,
-    "null_value": 22,
-    "order_total_mismatch": 20,
-    "unparseable_timestamp": 24,
-    "unsupported_schema_version": 19,
-    "value_not_allowed": 31
+    "below_minimum": 42,
+    "empty_lines": 32,
+    "line_total_mismatch": 64,
+    "missing_field": 34,
+    "null_value": 27,
+    "order_total_mismatch": 22,
+    "unparseable_timestamp": 21,
+    "unsupported_schema_version": 16,
+    "value_not_allowed": 10
   }
 }

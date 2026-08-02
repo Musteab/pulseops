@@ -10,6 +10,8 @@ Everything below is measured against a ground-truth manifest and reproducible fr
 
 [![ci](https://github.com/Musteab/pulseops/actions/workflows/ci.yml/badge.svg)](https://github.com/Musteab/pulseops/actions/workflows/ci.yml)
 
+**New to any of this?** [docs/EXPLAIN.md](docs/EXPLAIN.md) walks through the whole thing in plain language, follows one order end to end, and defines every term used below.
+
 ---
 
 ## Why this exists
@@ -25,16 +27,16 @@ run_id           run-42-5000
 seed             42
 window           2026-07-04 to 2026-08-02
 events written   5016
-faults injected  250  {'contract': 191, 'warehouse': 59}
+faults injected  250  {'contract': 188, 'warehouse': 62}
 
 contract version 1.0.0
 events read      5016
-passed           4825
-quarantined      191
+passed           4828
+quarantined      188
 
 ground truth     250 faults injected
-contract layer   191/191 caught  (100.0%)
-warehouse layer  59 deferred to dbt tests
+contract layer   188/188 caught  (100.0%)
+warehouse layer  62 deferred to dbt tests
 ```
 
 That last split is the honest part. The ingest-time contract cannot catch a duplicate delivery or an orphaned foreign key, because neither is visible from a single record. Those are tagged `warehouse` and handed to the dbt test layer instead of being quietly counted as a win.
@@ -46,27 +48,27 @@ The offline numbers above are not a simulation of the cloud path, they are the s
 | | Offline | Through Pub/Sub into BigQuery |
 |---|---|---|
 | Events | 5016 | 5016 published, 0 failed |
-| Passed the contract | 4825 | 4825 rows in `pulseops_raw.orders_raw` |
-| Quarantined | 191 | 191 rows in `pulseops_quarantine.orders_quarantine` |
-| p95 publish latency | n/a | 63 ms |
+| Passed the contract | 4828 | 4828 rows in `pulseops_raw.orders_raw` |
+| Quarantined | 188 | 188 rows in `pulseops_quarantine.orders_quarantine` |
+| p95 publish latency | n/a | 83 ms |
 
-Raw holds 4825 rows but only 4809 distinct `event_id` values. That gap of 16 is not a defect, it is the 16 injected `duplicate_event` faults sitting exactly where the design says they should: Pub/Sub delivers at least once, a single record cannot reveal that it is a replay, and deduplication is therefore the warehouse layer's job. The manifest injected 16 duplicates and BigQuery contains 16 extra rows.
+Raw holds 4828 rows but only 4812 distinct `event_id` values. That gap of 16 is not a defect, it is the 16 injected `duplicate_event` faults sitting exactly where the design says they should: Pub/Sub delivers at least once, a single record cannot reveal that it is a replay, and deduplication is therefore the warehouse layer's job. The manifest injected 16 duplicates and BigQuery contains 16 extra rows.
 
 ## Closing the loop: the warehouse layer
 
-The contract reports 191/191 and then hands over the three fault classes it structurally cannot see. `dq_warehouse_faults` reports what happened to them:
+The contract reports 188/188 and then hands over the three fault classes it structurally cannot see. `dq_warehouse_faults` reports what happened to them:
 
 | Fault | Found | Injected | Why ingest could not see it |
 |---|---|---|---|
 | `duplicate_event` | 16 | 16 | Needs the other records |
-| `late_arrival` | 20 | 20 | Needs to know when the window closed |
-| `orphan_menu_item` | 23 | 23 | Needs the menu |
+| `late_arrival` | 21 | 21 | Needs to know when the window closed |
+| `orphan_menu_item` | 25 | 25 | Needs the menu |
 
-191 at ingest plus 59 in the warehouse equals the 250 faults injected. Every one is accounted for, and neither number is asserted: both are counted against the same manifest.
+188 at ingest plus 62 in the warehouse equals the 250 faults injected. Every one is accounted for, and neither number is asserted: both are counted against the same manifest.
 
 Three decisions in that layer are worth naming:
 
-**Orphans get an unknown member, not a null and not a delete.** Twenty-three order lines reference a menu item that never existed. Dropping them makes revenue quietly wrong; leaving a null key means the fact table can no longer promise a valid join. Instead they attach to a single sentinel row in `dim_menu_item`, so the rows survive, the joins hold, and the damage is countable.
+**Orphans get an unknown member, not a null and not a delete.** Twenty-five order lines reference a menu item that never existed. Dropping them makes revenue quietly wrong; leaving a null key means the fact table can no longer promise a valid join. Instead they attach to a single sentinel row in `dim_menu_item`, so the rows survive, the joins hold, and the damage is countable.
 
 **`relationships` would not have caught them.** dbt's relationships test skips nulls, so it passed while every one of those rows had no menu item at all. `not_null` on the foreign key is what actually caught it. Worth knowing before you trust a green test run.
 
@@ -77,18 +79,18 @@ Quarantine is only worth keeping if something can come back out of it. `pulseops
 ```
 $ pulseops replay --store bq://YOUR-PROJECT
 
-attempted        191
-  repaired        43
-  unrepairable   148
+attempted        188
+  repaired        37
+  unrepairable   151
 
 repairs applied:
-     24  locale_timestamp
-     19  v2_total_rename
+     21  locale_timestamp
+     16  v2_total_rename
 ```
 
-Rebuilding the warehouse afterwards moves captured revenue from **RM 215,595.30 to RM 217,730.40** across 43 recovered orders. That is the schema-drift demo closing: the money was never lost, it was sitting in quarantine under a different field name, and the repair brought it back.
+Rebuilding the warehouse afterwards moves captured revenue from **RM 215,742.50 to RM 217,317.10** across 37 recovered orders. That is the schema-drift demo closing: the money was never lost, it was sitting in quarantine under a different field name, and the repair brought it back.
 
-**The 148 refusals are the point, not a shortfall.** A record whose total was renamed is recoverable, because the number is still there under another key. A record with no `outlet_id` is not, because nothing tells you which restaurant took the order. Every repair in `replay.py` is a pure rename or reformat of data that is already present, and seven tests exist specifically to fail if any of them ever starts inventing a value. Fabricating data to turn a dashboard green is worse than leaving it red.
+**The 151 refusals are the point, not a shortfall.** A record whose total was renamed is recoverable, because the number is still there under another key. A record with no `outlet_id` is not, because nothing tells you which restaurant took the order. Every repair in `replay.py` is a pure rename or reformat of data that is already present, and seven tests exist specifically to fail if any of them ever starts inventing a value. Fabricating data to turn a dashboard green is worse than leaving it red.
 
 **Rerunning is safe.** Attempts are recorded in an append-only `replay_log` and anti-joined on the next run, so a second `replay` reports `attempted 0` and revenue does not move. The log is a separate table rather than a flag on the quarantine row for a specific reason: BigQuery refuses to `UPDATE` rows still in the streaming buffer, which would be exactly the records most recently quarantined.
 
@@ -269,23 +271,23 @@ Two things that only surfaced by actually running it, both worth keeping:
 
 The weather join goes through `dim_outlet` rather than straight onto the fact. Two outlets share Kuala Lumpur, so joining city to city at fact level would double their revenue.
 
+## The dashboard
+
+`make dashboard` queries the warehouse and writes one self-contained HTML file. No server, no JavaScript, no dependencies, 9 KB. It opens from disk, survives being emailed, and diffs in a pull request.
+
+![the generated dashboard](docs/images/dashboard.png)
+
+It reads through the copilot's guarded tools rather than talking to BigQuery directly, so the page physically cannot display anything the agent is not allowed to query. One allowlist, not two.
+
+Note the line under the rejection chart. The bars sum to more than the 188 records actually quarantined, because one record can break several rules at once. That is written on the page because it is exactly the mistake the copilot made when a column was named badly, and a human reading the chart would make it too.
+
+Looker Studio would have been the obvious choice and was rejected deliberately: it is click-configured, so it cannot be committed, reviewed, or reproduced by anyone who clones this.
+
 ## The copilot
 
 The whole platform exists to answer one question, so there is an agent that answers it:
 
-```
-$ pulseops ask "Revenue looks lower than I expected. Did sales drop, or is the pipeline broken?"
-
-The pipeline is partly at fault. Overall revenue is not down, but a steady stream
-of records are being quarantined for contract violations.
-
-- pulseops_mart.fct_order_line: revenue and order counts are broadly stable.
-- pulseops_quarantine.orders_quarantine: 191 records quarantined, most commonly
-  line_total_mismatch (58).
-
-tools    quarantine_summary, revenue_by_outlet
-sources  pulseops_mart.fct_order_line, pulseops_quarantine.orders_quarantine
-```
+![the copilot answering the headline question](docs/images/copilot.png)
 
 Gemini 2.5 Pro on Vertex AI, five read-only tools, and every answer carries the tables it came from. An unsourced answer from an agent is not usable during an incident.
 

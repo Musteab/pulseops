@@ -1,12 +1,12 @@
 {
   "published": 5016,
   "failed": 0,
-  "elapsed_s": 214.504,
-  "throughput_per_s": 23.4,
+  "elapsed_s": 250.931,
+  "throughput_per_s": 20.0,
   "latency_ms": {
-    "p50": 38.17,
-    "p95": 62.68,
-    "p99": 83.46,
-    "max": 598.22
+    "p50": 42.6,
+    "p95": 82.55,
+    "p99": 149.37,
+    "max": 1570.12
   }
 }
