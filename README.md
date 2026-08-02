@@ -379,7 +379,7 @@ dbt/
   models/staging/       dedupe, unpack the JSON, type it
   models/marts/         the star schema, fct_daily_outlet, dq_warehouse_faults
   seeds/                dimension CSVs, written by the generator
-tests/                  195 python tests, including one per fault type
+tests/                  188 python tests, including one per fault type
 ```
 
 ## Data
