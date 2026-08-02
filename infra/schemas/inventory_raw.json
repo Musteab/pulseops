@@ -1,0 +1,11 @@
+[
+  {"name": "snapshot_date", "type": "DATE", "mode": "REQUIRED",
+   "description": "the day this stock level was recorded at close"},
+  {"name": "outlet_id", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "menu_item_id", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "units_on_hand", "type": "INT64", "mode": "REQUIRED"},
+  {"name": "unit_cost_myr", "type": "NUMERIC", "mode": "NULLABLE",
+   "description": "cost not price, so margin is derivable without joining prices"},
+  {"name": "loaded_at", "type": "TIMESTAMP", "mode": "REQUIRED",
+   "description": "when the batch landed, which is not the same as when it was measured"}
+]

@@ -1,0 +1,13 @@
+[
+  {"name": "city", "type": "STRING", "mode": "REQUIRED",
+   "description": "joins to dim_outlet.city"},
+  {"name": "weather_date", "type": "DATE", "mode": "REQUIRED"},
+  {"name": "temp_max_c", "type": "FLOAT64", "mode": "NULLABLE"},
+  {"name": "temp_min_c", "type": "FLOAT64", "mode": "NULLABLE"},
+  {"name": "precipitation_mm", "type": "FLOAT64", "mode": "NULLABLE"},
+  {"name": "source", "type": "STRING", "mode": "REQUIRED",
+   "description": "which provider, so a switch later is traceable"},
+  {"name": "fetched_at", "type": "TIMESTAMP", "mode": "REQUIRED",
+   "description": "third-party data gets restated, so keep when we asked"},
+  {"name": "loaded_at", "type": "TIMESTAMP", "mode": "REQUIRED"}
+]

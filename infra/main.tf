@@ -143,3 +143,45 @@ resource "google_bigquery_table" "replay_log" {
 
   clustering = ["status", "event_id"]
 }
+
+# ---------------------------------------------------------------------------
+# the batch sources
+# ---------------------------------------------------------------------------
+#
+# these two land through airflow rather than pubsub, so they are written with
+# WRITE_TRUNCATE on a partition rather than appended. a daily batch that is
+# re-run must replace its day, not double it, and that is the whole difference
+# between batch and streaming idempotency.
+
+resource "google_bigquery_table" "inventory_raw" {
+  dataset_id          = google_bigquery_dataset.raw.dataset_id
+  table_id            = "inventory_raw"
+  schema              = file("${path.module}/schemas/inventory_raw.json")
+  deletion_protection = false
+
+  # snapshots are always queried for a day or a range of days
+  require_partition_filter = false
+
+  time_partitioning {
+    type  = "DAY"
+    field = "snapshot_date"
+  }
+
+  clustering = ["outlet_id", "menu_item_id"]
+}
+
+resource "google_bigquery_table" "weather_raw" {
+  dataset_id          = google_bigquery_dataset.raw.dataset_id
+  table_id            = "weather_raw"
+  schema              = file("${path.module}/schemas/weather_raw.json")
+  deletion_protection = false
+
+  require_partition_filter = false
+
+  time_partitioning {
+    type  = "DAY"
+    field = "weather_date"
+  }
+
+  clustering = ["city"]
+}
