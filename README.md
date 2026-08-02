@@ -221,7 +221,7 @@ cd dbt && cp profiles.yml.example profiles.yml   # set project
 ../.venv-dbt/bin/dbt build --profiles-dir .
 ```
 
-`dbt build` runs the seeds, models and all 59 tests in dependency order. Authentication is `oauth`, so it reuses `gcloud auth application-default login` and there is no service-account key anywhere in the project.
+`dbt build` runs 2 seeds, 7 models and 50 tests in dependency order. Authentication is `oauth`, so it reuses `gcloud auth application-default login` and there is no service-account key anywhere in the project.
 
 ## The copilot
 
@@ -295,9 +295,9 @@ Built and tested:
 - [x] Subscriber that enforces the contract and routes to raw or quarantine
 - [x] Terraform for every GCP resource, including a dead-letter topic
 - [x] dbt staging models and a star schema (`fct_order_line`, `dim_outlet`, `dim_menu_item`, `dim_date`)
-- [x] 59 dbt tests and a warehouse fault scorecard reconciling against the manifest
+- [x] 50 dbt tests and a warehouse fault scorecard reconciling against the manifest
 - [x] Quarantine replay that repairs format, refuses to invent values, and cannot double count
-- [x] 84 python tests, lint, and a CI job that enforces the headline number
+- [x] 166 python tests, lint, and a CI job that enforces the headline number
 
 - [x] Data-reliability copilot on Gemini with allowlisted read-only tools
 - [x] 33 adversarial tests on the SQL guard, and a 20-case agent evaluation suite
@@ -335,7 +335,7 @@ dbt/
   models/staging/       dedupe, unpack the JSON, type it
   models/marts/         the star schema, plus dq_warehouse_faults
   seeds/                dimension CSVs, written by the generator
-tests/                  60 python tests, including one per fault type
+tests/                  166 python tests, including one per fault type
 ```
 
 ## Data
