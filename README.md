@@ -111,29 +111,33 @@ Roughly 30 seconds from clone to a scored quality report.
 
 ```mermaid
 flowchart LR
-  subgraph sources[Sources]
-    A[Order events<br/>synthetic stream]
-    B[Inventory CSV<br/>daily batch]
-    C[Weather API<br/>daily pull]
+  subgraph stream[Streaming]
+    A[Order events]
+  end
+  subgraph batch[Daily, via Airflow]
+    B[Inventory snapshot]
+    C[Weather API]
   end
 
   A --> PS[Pub/Sub]
-  PS --> ING[Contract validator]
-  B --> AF[Airflow DAG]
+  PS --> SUB[Subscriber<br/>enforces the contract]
+
+  SUB -->|valid| RAW[(raw.orders_raw)]
+  SUB -->|rejected| QT[(quarantine)]
+  QT -.repair, then replay.-> RAW
+
+  B --> AF[Airflow DAG<br/>partition replace]
   C --> AF
-  AF --> ING
+  AF --> BRAW[(raw.inventory_raw<br/>raw.weather_raw)]
 
-  ING -->|valid| RAW[(raw)]
-  ING -->|rejected| QT[(quarantine)]
-  QT -.replay after fix.-> ING
-
-  RAW --> STG[(staging<br/>dbt)]
+  RAW --> STG[(staging<br/>dedupe, type, conform)]
   STG --> MART[(marts<br/>star schema)]
-  MART --> DASH[Looker Studio]
+  BRAW --> MART
 
-  QT --> COP
+  MART --> DASH[Generated HTML dashboard]
   MART --> COP
-  COP[Copilot<br/>read-only tools] --> ANS[Answer with lineage]
+  QT --> COP
+  COP[Copilot<br/>read-only, allowlisted] --> ANS[Answer, with its sources]
 ```
 
 **Three layers, one rule each.** `raw` is append-only and never edited. `staging` is where types are cast, keys are deduplicated, and dbt tests run. `marts` is the dimensional model that dashboards and the copilot are allowed to touch.
@@ -221,7 +225,7 @@ cd dbt && cp profiles.yml.example profiles.yml   # set project
 ../.venv-dbt/bin/dbt build --profiles-dir .
 ```
 
-`dbt build` runs 2 seeds, 7 models and 50 tests in dependency order. Authentication is `oauth`, so it reuses `gcloud auth application-default login` and there is no service-account key anywhere in the project.
+`dbt build` runs 2 seeds, 8 models and 55 tests in dependency order. Authentication is `oauth`, so it reuses `gcloud auth application-default login` and there is no service-account key anywhere in the project.
 
 ## The batch sources, and Airflow
 
@@ -327,29 +331,39 @@ It paid for itself immediately, and three of the four bugs were in the platform 
 
 ## Status
 
-Built and tested:
+Everything on the original roadmap is built and has been run end to end against real GCP.
 
-- [x] Versioned data contract with full violation reporting
-- [x] Deterministic event generator with shaped traffic (hourly peaks, outlet weighting, payment failure rates)
-- [x] Twelve injected fault types with a ground-truth manifest
-- [x] Contract validation, quarantine output, and scored detection
+**Ingestion**
+- [x] Versioned data contract that reports every violation, not just the first
+- [x] Deterministic generator with shaped traffic, and twelve fault types with a ground-truth manifest
 - [x] Pub/Sub publishing with measured per-message latency
 - [x] Subscriber that enforces the contract and routes to raw or quarantine
-- [x] Terraform for every GCP resource, including a dead-letter topic
-- [x] dbt staging models and a star schema (`fct_order_line`, `dim_outlet`, `dim_menu_item`, `dim_date`)
-- [x] 50 dbt tests and a warehouse fault scorecard reconciling against the manifest
 - [x] Quarantine replay that repairs format, refuses to invent values, and cannot double count
-- [x] 166 python tests, lint, and a CI job that enforces the headline number
 
+**Warehouse**
+- [x] dbt staging models and a star schema (`fct_order_line`, `dim_outlet`, `dim_menu_item`, `dim_date`)
+- [x] `fct_daily_outlet` joining sales to stock levels and real weather
+- [x] `dq_warehouse_faults`, reconciling the deferred faults against the manifest
+
+**Orchestration and infrastructure**
+- [x] Terraform for every GCP resource, including a dead-letter topic
+- [x] Airflow DAG for the batch and API sources, verified running locally in Docker
+
+**Surfacing it**
+- [x] Self-contained HTML dashboard generated from the warehouse
 - [x] Data-reliability copilot on Gemini with allowlisted read-only tools
-- [x] 33 adversarial tests on the SQL guard, and a 20-case agent evaluation suite
+- [x] 20-case evaluation suite scoring tool selection, answer accuracy, sources and refusal
 
-Roadmap, in build order:
+**Checks**
+- [x] 188 python tests and 55 dbt tests, including 33 adversarial tests on the SQL guard
+- [x] CI enforcing the headline detection rate on every push
 
-- [ ] Airflow DAG for the batch and API sources
-- [ ] Looker Studio dashboard for revenue and pipeline health
+Not done:
 
-Nothing is claimed here that is not in the repo. Items above the line run today; items below it do not exist yet.
+- [ ] Deployed to Cloud Composer. The DAG runs locally in Docker by choice, and the README says so rather than implying a managed deployment.
+- [ ] Eval suite fast enough for CI. Five runs take about 48 minutes on `gemini-2.5-pro`.
+
+Nothing is claimed here that is not in the repo, and every number above was measured rather than estimated.
 
 ## Layout
 
