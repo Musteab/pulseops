@@ -257,23 +257,47 @@ def generate(
     )
 
 
+def _read_producer_clock(raw_ts: str) -> datetime | None:
+    """Recover the moment an event happened, whatever shape it was written in.
+
+    ISO-8601 first, then the locale format the unparseable_timestamp fault
+    produces. The second one matters: this stands in for the producer's own
+    clock, and a till knows when it took an order even when it serialises the
+    time badly. Treating a misformatted timestamp as unknown would stamp ingest
+    weeks away from the event, and every such record would then look like a
+    late arrival once it was repaired. That is a reporting artefact, not a
+    fault, and it inflated the warehouse fault count by exactly the number of
+    misformatted records.
+    """
+    try:
+        return datetime.fromisoformat(raw_ts.replace("Z", "+00:00"))
+    except ValueError:
+        pass
+    try:
+        return datetime.strptime(raw_ts, "%d/%m/%Y %I:%M %p").replace(tzinfo=UTC)
+    except ValueError:
+        return None
+
+
 def _finalise(event: dict, rng: random.Random, fallback_now: datetime) -> dict:
     """Stamp ingest metadata, which is set by the platform and not the producer."""
     late_days = event.pop("_late_by_days", 0)
 
+    # both draws happen unconditionally, for the same reason the weekend roll
+    # does: a branch that skips an rng call makes the stream depend on the data,
+    # and then the same seed stops producing the same dataset.
+    prompt_delay = rng.uniform(0.4, 12.0)
+    late_delay = rng.uniform(0.0, 3600.0)
+
     ingest = fallback_now
     raw_ts = event.get("event_ts")
     if isinstance(raw_ts, str):
-        try:
-            parsed = datetime.fromisoformat(raw_ts.replace("Z", "+00:00"))
+        parsed = _read_producer_clock(raw_ts)
+        if parsed is not None:
             # Normal path: ingest lands a few seconds after the event happened.
-            ingest = parsed + timedelta(seconds=rng.uniform(0.4, 12.0))
+            ingest = parsed + timedelta(seconds=prompt_delay)
             if late_days:
-                ingest = parsed + timedelta(
-                    days=late_days, seconds=rng.uniform(0.0, 3600.0)
-                )
-        except ValueError:
-            pass  # unparseable timestamps keep wall-clock ingest, as they would in reality
+                ingest = parsed + timedelta(days=late_days, seconds=late_delay)
 
     event["ingest_ts"] = ingest.isoformat().replace("+00:00", "Z")
     return event

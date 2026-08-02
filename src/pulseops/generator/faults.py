@@ -19,6 +19,7 @@ import copy
 import random
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 
 from .catalog import UNKNOWN_MENU_ITEM_ID
 
@@ -141,8 +142,20 @@ def _orphan_menu_item(event: Event, rng: random.Random):
 
 @fault("unparseable_timestamp", "contract")
 def _unparseable_timestamp(event: Event, rng: random.Random):
+    """Producer emits a locale-formatted timestamp instead of ISO-8601.
+
+    This reformats the event's own timestamp rather than substituting a fixed
+    one, and the difference matters. An earlier version hardcoded a date, so
+    repairing the record restored a timestamp weeks away from when the order
+    actually happened, and every repaired row then looked like a late arrival.
+    The warehouse fault count came out 24 too high and the cause was invisible.
+
+    A fault named for a format problem should change the format and nothing
+    else. Changing the value too is a second fault the manifest never recorded.
+    """
     bad = copy.deepcopy(event)
-    bad["event_ts"] = "29/07/2026 10:15 AM"
+    original = datetime.fromisoformat(str(bad["event_ts"]).replace("Z", "+00:00"))
+    bad["event_ts"] = original.strftime("%d/%m/%Y %I:%M %p")
     return [bad], FaultRecord(
         event["event_id"],
         "unparseable_timestamp",
